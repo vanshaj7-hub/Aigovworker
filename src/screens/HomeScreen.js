@@ -1,106 +1,198 @@
-import React from 'react';
-import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {Badge, Card, Header, Screen} from '../components';
-import {colors} from '../theme';
+import React, {useMemo} from 'react';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {c, elevation, r, t} from '../theme';
+import {useLang} from '../i18n';
+import {
+  Avatar,
+  Banner,
+  Card,
+  Divider,
+  Icon,
+  LanguageToggle,
+  LegendDot,
+  ProgressBar,
+  Screen,
+  StatusPill,
+} from '../ui';
+import {
+  clockTime,
+  currentShift,
+  dateKey,
+  resolveStatus,
+  shiftLabel,
+  shiftWindowState,
+} from '../domain/shifts';
 
-function Tile({title, desc, icon, onPress}) {
+function ActionTile({icon, color, title, sub, onPress}) {
   return (
-    <TouchableOpacity onPress={onPress} style={styles.tile}>
-      <Text style={styles.tileIcon}>{icon}</Text>
-      <Text style={styles.tileTitle}>{title}</Text>
-      <Text style={styles.tileDesc}>{desc}</Text>
-    </TouchableOpacity>
+    <Card style={s.tile} onPress={onPress}>
+      <Icon name={icon} size={26} color={color} />
+      <Text style={s.tileTitle}>{title}</Text>
+      <Text style={s.tileSub}>{sub}</Text>
+    </Card>
   );
 }
 
-export default function HomeScreen({
-  session,
-  navigate,
-  onLogout,
-  stats,
-  isOnline,
-}) {
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate}) {
+  const {t: tr, lang} = useLang();
+  const shift = currentShift();
+  const dk = dateKey(new Date());
+
+  const counts = useMemo(() => {
+    let present = 0;
+    let leave = 0;
+    let pending = 0;
+    let absent = 0;
+    workers.forEach(w => {
+      const {status} = resolveStatus({
+        workerId: w.id,
+        dk,
+        shiftId: shift.id,
+        records,
+        leaves,
+      });
+      if (status === 'present') present++;
+      else if (status === 'leave') leave++;
+      else if (status === 'absent') absent++;
+      else pending++;
+    });
+    return {present, leave, pending, absent, total: workers.length};
+  }, [workers, records, leaves, dk, shift.id]);
+
+  const queued = records.filter(rec => !rec.synced).length;
+  const state = shiftWindowState(shift);
+  const shiftKey =
+    state === 'open' ? 'shiftInProgress' : state === 'closed' ? 'shiftClosed' : 'shiftNotStarted';
+
+  const dateLabel = new Date().toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+
   return (
     <Screen>
-      <Header
-        title="Workforce Attendance"
-        subtitle={`Signed in as ${session.name}`}
-        right={
-          <TouchableOpacity onPress={onLogout}>
-            <Text style={styles.logout}>Logout</Text>
-          </TouchableOpacity>
-        }
-      />
-      <View style={styles.body}>
-        <Card style={styles.statsCard}>
-          <View style={{flex: 1}}>
-            <Text style={styles.statsBig}>
-              {stats.presentToday}/{stats.totalWorkers}
-            </Text>
-            <Text style={styles.statsLabel}>workers present today</Text>
-          </View>
-          <View style={{alignItems: 'flex-end', gap: 6}}>
-            <Badge
-              text={isOnline ? 'ONLINE' : 'OFFLINE'}
-              color={isOnline ? colors.success : colors.warning}
+      <View style={s.header}>
+        <Avatar name={profile.name} uri={profile.photoUri} size={46} bg={c.primary} fg="#fff" />
+        <View style={{flex: 1, marginLeft: 12}}>
+          <Text style={s.name} numberOfLines={1}>
+            {profile.name}
+          </Text>
+          <Text style={t.small}>{ward.name}</Text>
+        </View>
+        <LanguageToggle />
+      </View>
+      <Divider />
+
+      <ScrollView contentContainerStyle={s.body}>
+        <Card>
+          <View style={s.summaryTop}>
+            <Text style={s.date}>{dateLabel}</Text>
+            <StatusPill
+              label={tr(shiftKey, {shift: shiftLabel(tr, shift.id)})}
+              tone={state === 'open' ? 'info' : 'neutral'}
             />
-            {stats.pendingSync > 0 ? (
-              <Badge text={`${stats.pendingSync} pending sync`} color={colors.warning} />
-            ) : (
-              <Badge text="All synced" color={colors.success} />
-            )}
+          </View>
+          <View style={s.countRow}>
+            <Text style={s.bigCount}>{counts.present}</Text>
+            <Text style={s.countSub}>{tr('marked', {total: counts.total})}</Text>
+          </View>
+          <ProgressBar value={counts.present} total={counts.total} />
+          <View style={s.legendRow}>
+            <LegendDot color={c.success} label={tr('present')} value={counts.present} />
+            <LegendDot color={c.textDisabled} label={tr('pending')} value={counts.pending} />
+            <LegendDot color={c.warning} label={tr('onLeave')} value={counts.leave} />
           </View>
         </Card>
 
-        <View style={styles.grid}>
-          <Tile
-            icon="📸"
-            title="Mark Attendance"
-            desc="Verify a worker's face and record attendance"
+        <View style={s.grid}>
+          <ActionTile
+            icon="how-to-reg"
+            color={c.primary}
+            title={tr('markAttendance')}
+            sub={
+              counts.total === 0
+                ? tr('addWorkersFirst')
+                : counts.pending > 0
+                ? tr('workersLeft', {n: counts.pending})
+                : tr('allMarked')
+            }
             onPress={() => navigate('attendance')}
           />
-          <Tile
-            icon="👷"
-            title="Workers"
-            desc="Enroll and manage field workers"
-            onPress={() => navigate('workers')}
+          <ActionTile
+            icon="person-add-alt"
+            color={c.success}
+            title={tr('addWorker')}
+            sub={tr('oneTimeOnboarding')}
+            onPress={() => navigate('addWorker')}
           />
-          <Tile
-            icon="🗒️"
-            title="History"
-            desc="Attendance records and audit trail"
+          <ActionTile
+            icon="event-busy"
+            color={c.warningStrong}
+            title={tr('addLeave')}
+            sub={tr('recordApprovedLeave')}
+            onPress={() => navigate('addLeave')}
+          />
+          <ActionTile
+            icon="history"
+            color={c.error}
+            title={tr('history')}
+            sub={tr('pastAttendance')}
             onPress={() => navigate('history')}
           />
         </View>
-        <Text style={styles.footer}>
-          Attendance is stored on-device and synced automatically when online.
-        </Text>
-      </View>
+
+        <Pressable onPress={() => navigate('sync')}>
+          {queued > 0 || !isOnline ? (
+            <Banner
+              tone="warning"
+              icon="cloud-off"
+              title={!isOnline ? tr('youAreOffline') : undefined}
+              body={tr('queuedCount', {n: queued})}
+            />
+          ) : (
+            <Banner
+              tone="success"
+              icon="cloud-done"
+              body={
+                lastSync ? tr('allSynced', {time: clockTime(lastSync)}) : tr('nothingQueued')
+              }
+            />
+          )}
+        </Pressable>
+
+        <Pressable onPress={() => navigate('signOut')} style={s.signOut}>
+          <Text style={s.signOutText}>{tr('signOut')}</Text>
+        </Pressable>
+      </ScrollView>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  logout: {color: '#ffd9a0', fontWeight: '700', fontSize: 13},
-  body: {padding: 18, flex: 1},
-  statsCard: {flexDirection: 'row', alignItems: 'center', marginBottom: 18},
-  statsBig: {fontSize: 32, fontWeight: '800', color: colors.primary},
-  statsLabel: {color: colors.textMuted, fontSize: 13},
-  grid: {gap: 14},
-  tile: {
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 18,
+const s = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: c.surface,
   },
-  tileIcon: {fontSize: 26, marginBottom: 8},
-  tileTitle: {fontSize: 17, fontWeight: '800', color: colors.text},
-  tileDesc: {fontSize: 13, color: colors.textMuted, marginTop: 3},
-  footer: {
-    marginTop: 'auto',
-    textAlign: 'center',
-    color: colors.textMuted,
-    fontSize: 12,
-  },
+  name: {fontSize: 17, fontWeight: '600', color: c.text},
+  body: {padding: 16, paddingBottom: 32},
+
+  summaryTop: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  date: {...t.body, color: c.textMuted, flex: 1, marginRight: 10},
+  countRow: {flexDirection: 'row', alignItems: 'baseline', marginTop: 14, marginBottom: 12},
+  bigCount: {fontSize: 40, fontWeight: '500', color: c.text, lineHeight: 44},
+  countSub: {fontSize: 17, color: c.textMuted, marginLeft: 8},
+  legendRow: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 14},
+
+  grid: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, marginHorizontal: -6},
+  tile: {width: '50%', marginHorizontal: 6, flexBasis: '46%', flexGrow: 1, marginBottom: 12, minHeight: 128},
+  tileTitle: {fontSize: 16, fontWeight: '600', color: c.text, marginTop: 14},
+  tileSub: {...t.small, marginTop: 3},
+
+  signOut: {alignItems: 'center', paddingVertical: 22},
+  signOutText: {color: c.primaryDark, fontSize: 14.5, fontWeight: '600'},
 });

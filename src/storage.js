@@ -1,173 +1,184 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {dateKey} from './domain/shifts';
 
-const KEYS = {
-  ACCOUNTS: '@accounts',
+const K = {
+  SESSION: '@session',
+  PROFILE: '@profile',
+  WARD: '@ward',
   WORKERS: '@workers',
   ATTENDANCE: '@attendance',
+  LEAVES: '@leaves',
+  SYNC: '@lastSync',
+  ISSUES: '@boundaryIssues',
 };
 
-const DEFAULT_ACCOUNTS = [
-  {
-    role: 'supervisor',
-    username: 'supervisor',
-    password: 'nagar123',
-    name: 'Field Supervisor',
-  },
-  {
-    role: 'admin',
-    username: 'admin',
-    password: 'admin123',
-    name: 'Regional Manager',
-  },
-];
+// Credentials the IT Administrator would issue. Local until a backend exists.
+const ACCOUNTS = [{id: 'SUP-042', password: 'ward42', wardCode: 'W42'}];
 
-async function readJson(key, fallback) {
+// The ward the signed-in supervisor is assigned to. In the full system this
+// arrives from the server with a geo-fence drawn by the IT Administrator.
+const DEFAULT_WARD = {
+  code: 'W42',
+  number: 42,
+  name: 'Ward 42 — Dharampur',
+  shortName: 'Ward 42',
+  center: null, // provisioned on first GPS fix; see setWardCentre
+  radiusM: 800,
+};
+
+async function read(key, fallback) {
   const raw = await AsyncStorage.getItem(key);
   return raw ? JSON.parse(raw) : fallback;
 }
-
-async function writeJson(key, value) {
+async function write(key, value) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
+  return value;
 }
 
-export async function getAccounts() {
-  const accounts = await readJson(KEYS.ACCOUNTS, null);
-  if (!accounts) {
-    await writeJson(KEYS.ACCOUNTS, DEFAULT_ACCOUNTS);
-    return DEFAULT_ACCOUNTS;
+const uid = p => `${p}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+
+/* ---------------------------------------------------------------- session */
+
+export async function signIn(supervisorId, password) {
+  const id = String(supervisorId || '').trim().toUpperCase();
+  const acct = ACCOUNTS.find(a => a.id === id && a.password === password);
+  if (!acct) {
+    return null;
   }
-  return accounts;
+  const session = {supervisorId: acct.id, signedInAt: new Date().toISOString()};
+  await write(K.SESSION, session);
+  return session;
 }
 
-export async function getWorkers() {
-  return readJson(KEYS.WORKERS, []);
+export const getSession = () => read(K.SESSION, null);
+export const signOut = () => AsyncStorage.removeItem(K.SESSION);
+
+export const getProfile = () => read(K.PROFILE, null);
+export const saveProfile = p => write(K.PROFILE, {...p, completedAt: new Date().toISOString()});
+
+export async function getWard() {
+  const w = await read(K.WARD, null);
+  if (w) {
+    return w;
+  }
+  return write(K.WARD, DEFAULT_WARD);
 }
 
-export async function saveWorker(worker) {
+/**
+ * Provision the ward centre from the first reliable GPS fix, so the geo-fence
+ * is meaningful wherever the app is being used. In production this value is
+ * supplied by the IT Administrator and this call is never made.
+ */
+export async function setWardCentre(position, {force = false} = {}) {
+  const ward = await getWard();
+  if (!position || (ward.center && !force)) {
+    return ward;
+  }
+  return write(K.WARD, {
+    ...ward,
+    center: {lat: position.lat, lng: position.lng},
+    centreProvisionedAt: new Date().toISOString(),
+    centreFromDevice: true,
+  });
+}
+
+/* ---------------------------------------------------------------- workers */
+
+export const getWorkers = () => read(K.WORKERS, []);
+
+export async function addWorker(worker) {
   const workers = await getWorkers();
-  workers.push(worker);
-  await writeJson(KEYS.WORKERS, workers);
-  return workers;
+  const ward = await getWard();
+  const seq = 110 + workers.length;
+  const full = {
+    id: uid('w'),
+    code: `${ward.code}-${seq}`,
+    createdAt: new Date().toISOString(),
+    ...worker,
+  };
+  workers.push(full);
+  await write(K.WORKERS, workers);
+  return {workers, worker: full};
 }
 
-export async function deleteWorker(workerId) {
-  const workers = (await getWorkers()).filter(w => w.id !== workerId);
-  await writeJson(KEYS.WORKERS, workers);
-  return workers;
+export async function removeWorker(id) {
+  const workers = (await getWorkers()).filter(w => w.id !== id);
+  return write(K.WORKERS, workers);
 }
 
-export async function getAttendance() {
-  return readJson(KEYS.ATTENDANCE, []);
+/* ------------------------------------------------------------- attendance */
+
+export const getAttendance = () => read(K.ATTENDANCE, []);
+
+export async function addAttendance(rec) {
+  const all = await getAttendance();
+  // One record per worker per shift per day — a re-capture replaces the earlier one.
+  const filtered = all.filter(
+    r => !(r.workerId === rec.workerId && r.date === rec.date && r.shift === rec.shift),
+  );
+  const full = {id: uid('a'), createdAt: new Date().toISOString(), synced: false, ...rec};
+  filtered.unshift(full);
+  await write(K.ATTENDANCE, filtered);
+  return {records: filtered, record: full};
 }
 
-export async function addAttendance(record) {
+/* ----------------------------------------------------------------- leaves */
+
+export const getLeaves = () => read(K.LEAVES, []);
+
+export async function addLeave(leave) {
+  const all = await getLeaves();
+  const full = {id: uid('l'), createdAt: new Date().toISOString(), ...leave};
+  all.unshift(full);
+  await write(K.LEAVES, all);
+  return {leaves: all, leave: full};
+}
+
+/* ------------------------------------------------------------------- sync */
+
+export const getLastSync = () => read(K.SYNC, null);
+
+/**
+ * Offline-first: records are always written locally first and flushed when the
+ * device is online. There is no server yet, so flushing marks the queue as sent.
+ * Point this at the attendance API when the backend exists.
+ */
+export async function flushQueue(isOnline) {
   const records = await getAttendance();
-  records.unshift(record);
-  await writeJson(KEYS.ATTENDANCE, records);
-  return records;
-}
-
-// Marks locally queued records as synced. This app is offline-first: records
-// are always saved locally, then flushed when connectivity is available.
-// Point this at a real backend endpoint when one exists.
-export async function syncPendingRecords(isOnline) {
-  const records = await getAttendance();
-  if (!isOnline) {
-    return {records, syncedCount: 0};
+  const queued = records.filter(r => !r.synced);
+  if (!isOnline || queued.length === 0) {
+    return {records, synced: 0, online: !!isOnline};
   }
-  let syncedCount = 0;
   const now = new Date().toISOString();
-  for (const r of records) {
+  records.forEach(r => {
     if (!r.synced) {
       r.synced = true;
       r.syncedAt = now;
-      syncedCount++;
     }
-  }
-  if (syncedCount > 0) {
-    await writeJson(KEYS.ATTENDANCE, records);
-  }
-  return {records, syncedCount};
+  });
+  await write(K.ATTENDANCE, records);
+  await write(K.SYNC, now);
+  return {records, synced: queued.length, online: true};
 }
 
-export function dateKey(d) {
-  const dt = d instanceof Date ? d : new Date(d);
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const day = String(dt.getDate()).padStart(2, '0');
-  return `${dt.getFullYear()}-${m}-${day}`;
+export async function reportBoundaryIssue(payload) {
+  const issues = await read(K.ISSUES, []);
+  issues.unshift({id: uid('bi'), at: new Date().toISOString(), ...payload});
+  return write(K.ISSUES, issues);
 }
 
-// ---------------------------------------------------------------------------
-// Sample data for the admin dashboard. Clearly flagged demo:true so it can be
-// removed in one tap and never mixes ambiguously with real field records.
-// ---------------------------------------------------------------------------
+/* ------------------------------------------------------------- aggregates */
 
-const DEMO_AREAS = [
-  {area: 'Ward 1 – Clock Tower', workers: 14, attendanceRate: 0.86},
-  {area: 'Ward 2 – Rajpur Road', workers: 11, attendanceRate: 0.78},
-  {area: 'Ward 3 – Patel Nagar', workers: 9, attendanceRate: 0.9},
-  {area: 'Ward 4 – ISBT', workers: 12, attendanceRate: 0.7},
-  {area: 'Ward 5 – Raipur', workers: 7, attendanceRate: 0.82},
-];
-
-export async function hasDemoData() {
-  const records = await getAttendance();
-  return records.some(r => r.demo);
+export async function loadAll() {
+  const [profile, ward, workers, records, leaves, lastSync] = await Promise.all([
+    getProfile(),
+    getWard(),
+    getWorkers(),
+    getAttendance(),
+    getLeaves(),
+    getLastSync(),
+  ]);
+  return {profile, ward, workers, records, leaves, lastSync};
 }
 
-export async function seedDemoData(days = 120) {
-  const records = await getAttendance();
-  const real = records.filter(r => !r.demo);
-  const demo = [];
-  const today = new Date();
-  for (let back = 1; back <= days; back++) {
-    const day = new Date(today);
-    day.setDate(day.getDate() - back);
-    const dow = day.getDay();
-    if (dow === 0) {
-      continue; // weekly off
-    }
-    // Slow upward adoption trend: older weeks see fewer digital check-ins.
-    const adoption = 0.55 + 0.45 * ((days - back) / days);
-    for (const cfg of DEMO_AREAS) {
-      for (let w = 0; w < cfg.workers; w++) {
-        const p = cfg.attendanceRate * adoption * (dow === 6 ? 0.85 : 1);
-        if (Math.random() > p) {
-          continue;
-        }
-        const ts = new Date(day);
-        ts.setHours(7 + Math.floor(Math.random() * 3));
-        ts.setMinutes(Math.floor(Math.random() * 60));
-        ts.setSeconds(Math.floor(Math.random() * 60));
-        demo.push({
-          id: `demo_${back}_${cfg.area}_${w}`,
-          workerId: `demo_w_${cfg.area}_${w}`,
-          workerName: `Demo Worker ${w + 1}`,
-          department: 'Sanitation',
-          area: cfg.area,
-          timestamp: ts.toISOString(),
-          dateKey: dateKey(ts),
-          location: null,
-          supervisor: 'Demo Supervisor',
-          supervisorUsername: 'demo',
-          similarity: Math.round((0.62 + Math.random() * 0.3) * 100) / 100,
-          status: 'present',
-          synced: true,
-          demo: true,
-        });
-      }
-    }
-  }
-  demo.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-  const merged = [...real, ...demo].sort((a, b) =>
-    a.timestamp < b.timestamp ? 1 : -1,
-  );
-  await writeJson(KEYS.ATTENDANCE, merged);
-  return merged;
-}
-
-export async function clearDemoData() {
-  const records = (await getAttendance()).filter(r => !r.demo);
-  await writeJson(KEYS.ATTENDANCE, records);
-  return records;
-}
+export {dateKey};

@@ -1,63 +1,80 @@
 import {PermissionsAndroid, Platform} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
-import {launchCamera} from 'react-native-image-picker';
+import {launchImageLibrary} from 'react-native-image-picker';
 
-export async function requestAppPermissions() {
+Geolocation.setRNConfiguration({skipPermissionRequests: true, authorizationLevel: 'whenInUse'});
+
+export async function requestPermissions() {
   if (Platform.OS !== 'android') {
-    return true;
+    return {camera: true, location: true};
   }
-  const result = await PermissionsAndroid.requestMultiple([
+  const res = await PermissionsAndroid.requestMultiple([
     PermissionsAndroid.PERMISSIONS.CAMERA,
     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
   ]);
-  return (
-    result[PermissionsAndroid.PERMISSIONS.CAMERA] ===
-    PermissionsAndroid.RESULTS.GRANTED
-  );
+  return {
+    camera: res[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED,
+    location:
+      res[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] ===
+      PermissionsAndroid.RESULTS.GRANTED,
+  };
 }
 
-/**
- * Opens the camera and resolves with {uri} of the captured photo,
- * or null if the user cancelled.
- */
-export async function capturePhoto(useFrontCamera = false) {
-  const result = await launchCamera({
-    mediaType: 'photo',
-    cameraType: useFrontCamera ? 'front' : 'back',
-    maxWidth: 1600,
-    maxHeight: 1600,
-    quality: 0.9,
-    saveToPhotos: false,
-    includeBase64: false,
+const shape = pos => ({
+  lat: pos.coords.latitude,
+  lng: pos.coords.longitude,
+  accuracy: pos.coords.accuracy,
+  at: new Date().toISOString(),
+});
+
+/** One-shot fix. Resolves null rather than rejecting, so attendance is never blocked by a throw. */
+export function getLocation({timeout = 15000} = {}) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => {
+      if (!done) {
+        done = true;
+        resolve(v);
+      }
+    };
+    Geolocation.getCurrentPosition(
+      pos => finish(shape(pos)),
+      () => finish(null),
+      {enableHighAccuracy: true, timeout, maximumAge: 15000},
+    );
+    setTimeout(() => finish(null), timeout + 1000);
   });
-  if (result.didCancel) {
+}
+
+/** Continuous updates for the live geo-fence chip. Returns an unsubscribe function. */
+export function watchLocation(onChange) {
+  let id = null;
+  try {
+    id = Geolocation.watchPosition(
+      pos => onChange(shape(pos)),
+      () => {},
+      {enableHighAccuracy: true, distanceFilter: 5, interval: 3000, fastestInterval: 1500},
+    );
+  } catch (e) {
+    return () => {};
+  }
+  return () => {
+    if (id !== null) {
+      try {
+        Geolocation.clearWatch(id);
+      } catch (e) {
+        // watch already cleared
+      }
+    }
+  };
+}
+
+/** Pick an existing photo — the gallery affordance on the capture screen. */
+export async function pickFromGallery() {
+  const res = await launchImageLibrary({mediaType: 'photo', quality: 0.9, selectionLimit: 1});
+  if (res.didCancel || res.errorCode) {
     return null;
   }
-  if (result.errorCode) {
-    throw new Error(result.errorMessage || result.errorCode);
-  }
-  const asset = result.assets && result.assets[0];
-  if (!asset || !asset.uri) {
-    throw new Error('Camera returned no image');
-  }
-  return asset;
-}
-
-/**
- * Resolves with {lat, lng, accuracy} or null if location is unavailable
- * within the timeout. Attendance still gets recorded without location.
- */
-export function getLocation() {
-  return new Promise(resolve => {
-    Geolocation.getCurrentPosition(
-      pos =>
-        resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        }),
-      () => resolve(null),
-      {enableHighAccuracy: true, timeout: 15000, maximumAge: 30000},
-    );
-  });
+  const asset = res.assets && res.assets[0];
+  return asset && asset.uri ? asset.uri : null;
 }

@@ -133,12 +133,20 @@ export async function extractFaceEmbedding(photoUri) {
   return {embedding, faceUri: cropUri};
 }
 
-export function faceErrorMessage(err) {
-  if (err && err.message === 'NO_FACE') {
-    return 'No face detected in the photo. Retake with the worker facing the camera in good light.';
+export function faceErrorMessage(err, tr) {
+  const code = err && err.message;
+  if (!tr) {
+    return code === 'NO_FACE'
+      ? 'No face detected.'
+      : code === 'MULTIPLE_FACES'
+      ? 'More than one face in the frame.'
+      : `Face processing failed: ${code || 'unknown error'}`;
   }
-  if (err && err.message === 'MULTIPLE_FACES') {
-    return 'More than one prominent face detected. Retake with only the worker in frame.';
+  if (code === 'NO_FACE') {
+    return tr('noFaceBody');
   }
-  return `Face processing failed: ${err ? err.message : 'unknown error'}`;
+  if (code === 'MULTIPLE_FACES') {
+    return tr('manyFacesBody');
+  }
+  return `${tr('noFaceTitle')}: ${code || ''}`.trim();
 }
