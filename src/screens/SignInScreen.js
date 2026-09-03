@@ -1,24 +1,28 @@
 import React, {useState} from 'react';
-import {Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Alert, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
-import {DEMO_CREDENTIALS, signIn} from '../storage';
+import {DEMO_CREDENTIALS, isEmail, signIn} from '../storage';
 
-export default function SignInScreen({onSignedIn, onSignUp, onForgot}) {
+export default function SignInScreen({onSignedIn}) {
   const {t: tr} = useLang();
-  const [id, setId] = useState('');
+  const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (!id.trim()) {
-      Alert.alert(tr('signInFailed'), tr('idRequired'));
+    if (!email.trim()) {
+      Alert.alert(tr('signInFailed'), tr('emailRequired'));
+      return;
+    }
+    if (!isEmail(email)) {
+      Alert.alert(tr('signInFailed'), tr('emailInvalid'));
       return;
     }
     setBusy(true);
     try {
-      const res = await signIn(id, pw);
+      const res = await signIn(email, pw);
       if (res.ok) {
         onSignedIn(res.session);
       } else {
@@ -45,33 +49,23 @@ export default function SignInScreen({onSignedIn, onSignUp, onForgot}) {
           <Text style={s.title}>{tr('signInTitle')}</Text>
           <Text style={s.sub}>{tr('signInSub')}</Text>
 
-          <View style={{height: 26}} />
+          <View style={{height: 28}} />
           <Field
-            label={tr('supervisorId')}
-            value={id}
-            onChangeText={setId}
-            icon="badge"
-            placeholder={DEMO_CREDENTIALS.id}
-            autoCapitalize="characters"
+            label={tr('emailAddress')}
+            value={email}
+            onChangeText={setEmail}
+            icon="alternate-email"
+            placeholder={DEMO_CREDENTIALS.email}
+            keyboardType="email-address"
           />
           <Field label={tr('password')} value={pw} onChangeText={setPw} secure />
           <FilledButton label={tr('signIn')} onPress={submit} busy={busy} />
 
-          <Pressable onPress={onForgot} style={s.linkRow} hitSlop={8}>
-            <Text style={s.link}>{tr('forgotTitle')}</Text>
-          </Pressable>
-
-          <View style={s.sep}>
-            <View style={s.sepLine} />
-            <Text style={s.sepText}>{tr('noAccountQ')}</Text>
-            <View style={s.sepLine} />
-          </View>
-          <Pressable onPress={onSignUp} hitSlop={8}>
-            <Text style={[s.link, {fontSize: 15}]}>{tr('createOne')}</Text>
-          </Pressable>
+          {/* Accounts are issued by the IT team; there is no self-service reset. */}
+          <Text style={s.forgot}>{tr('forgot')}</Text>
 
           <Text style={s.demo}>
-            {tr('demoCredentials', {id: DEMO_CREDENTIALS.id, pw: DEMO_CREDENTIALS.password})}
+            {tr('demoCredentials', {id: DEMO_CREDENTIALS.email, pw: DEMO_CREDENTIALS.password})}
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -85,30 +79,26 @@ export default function SignInScreen({onSignedIn, onSignUp, onForgot}) {
 
 const s = StyleSheet.create({
   top: {alignItems: 'flex-end', paddingHorizontal: 16, paddingTop: 14},
-  body: {paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24},
+  body: {paddingHorizontal: 24, paddingTop: 30, paddingBottom: 24},
   logo: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
     backgroundColor: c.primaryContainer,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
   },
   title: {...t.display, textAlign: 'center', fontWeight: '400'},
   sub: {...t.bodyMuted, textAlign: 'center', marginTop: 6, fontSize: 14.5},
-  linkRow: {alignItems: 'center', marginTop: 18},
-  link: {color: c.primaryDark, fontSize: 14.5, fontWeight: '600', textAlign: 'center'},
-  sep: {flexDirection: 'row', alignItems: 'center', marginTop: 26, marginBottom: 14},
-  sepLine: {flex: 1, height: 1, backgroundColor: c.outlineSoft},
-  sepText: {...t.small, marginHorizontal: 12},
-  demo: {...t.small, textAlign: 'center', marginTop: 26, fontSize: 12},
+  forgot: {...t.bodyMuted, textAlign: 'center', marginTop: 20, fontSize: 13.5, lineHeight: 19},
+  demo: {...t.small, textAlign: 'center', marginTop: 30, fontSize: 12},
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 20,
+    paddingBottom: 22,
     paddingTop: 8,
   },
   footerText: {...t.small, marginLeft: 8, fontSize: 12.5},

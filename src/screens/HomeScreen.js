@@ -43,7 +43,7 @@ function DemoRow({icon, label, onPress, danger}) {
   );
 }
 
-export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo}) {
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword}) {
   const {t: tr, lang} = useLang();
   const shift = currentShift();
   const dk = dateKey(new Date());
@@ -196,7 +196,11 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
           ) : null}
         </View>
 
-        <Pressable onPress={() => navigate('signOut')} style={s.signOut}>
+        <Pressable onPress={onChangePassword} style={s.signOut}>
+          <Text style={s.signOutText}>{tr('changePassword')}</Text>
+        </Pressable>
+
+        <Pressable onPress={() => navigate('signOut')} style={[s.signOut, {paddingTop: 0}]}>
           <Text style={s.signOutText}>{tr('signOut')}</Text>
         </Pressable>
       </ScrollView>

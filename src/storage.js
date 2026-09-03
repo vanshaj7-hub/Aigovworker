@@ -15,25 +15,27 @@ const K = {
   ISSUES: '@boundaryIssues',
 };
 
-// A pre-provisioned account so the app can be tested without registering.
-// In the full system the IT Administrator issues these.
-export const DEMO_CREDENTIALS = {id: 'SUP-042', password: 'Nagar@2026'};
+// Credentials are issued by the IT team; the app never creates accounts.
+// The seeded account below stands in for that until the backend is connected.
+export const DEMO_CREDENTIALS = {email: 'rahul@example.com', password: 'Nagar@2026'};
 
 const SEED_ACCOUNT = {
-  supervisorId: DEMO_CREDENTIALS.id,
+  email: DEMO_CREDENTIALS.email,
   hash: digest(DEMO_CREDENTIALS.password),
+  supervisorId: 1,
   wardCode: 'W42',
-  createdAt: null,
+  // 1 while the supervisor is still on the password the IT team issued.
+  mustResetPassword: true,
 };
 
 // The ward the supervisor is assigned to. In the full system this arrives from
-// the server with a geo-fence drawn per ward by the IT Administrator.
+// /supervisor-home with a geo-fence drawn per ward by the IT Administrator.
 const DEFAULT_WARD = {
   code: 'W42',
   number: 42,
   name: 'Ward 42 — Dharampur',
   shortName: 'Ward 42',
-  center: null, // provisioned from the device until a backend supplies it
+  center: null,
   radiusM: 800,
 };
 
@@ -46,67 +48,74 @@ async function write(key, value) {
   return value;
 }
 const uid = p => `${p}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
-const normId = v => String(v || '').trim().toUpperCase();
+const normEmail = v => String(v || '').trim().toLowerCase();
+
+export const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || '').trim());
 
 /* --------------------------------------------------------------- accounts */
 
 export async function getAccounts() {
   const list = await read(K.ACCOUNTS, null);
-  if (list) {
-    return list;
-  }
-  return write(K.ACCOUNTS, [SEED_ACCOUNT]);
+  return list || write(K.ACCOUNTS, [SEED_ACCOUNT]);
 }
 
-export async function accountExists(supervisorId) {
+/**
+ * The supervisor signs in with the email address and password the IT team
+ * issued. There is no self-service registration.
+ */
+export async function signIn(email, password) {
+  const id = normEmail(email);
   const accounts = await getAccounts();
-  return accounts.some(a => a.supervisorId === normId(supervisorId));
-}
-
-export async function signUp(supervisorId, password) {
-  const id = normId(supervisorId);
-  const accounts = await getAccounts();
-  if (accounts.some(a => a.supervisorId === id)) {
-    return {ok: false, reason: 'exists'};
-  }
-  accounts.push({
-    supervisorId: id,
-    hash: digest(password),
-    wardCode: DEFAULT_WARD.code,
-    createdAt: new Date().toISOString(),
-  });
-  await write(K.ACCOUNTS, accounts);
-  return {ok: true, session: await startSession(id)};
-}
-
-export async function signIn(supervisorId, password) {
-  const id = normId(supervisorId);
-  const accounts = await getAccounts();
-  const acct = accounts.find(a => a.supervisorId === id);
+  const acct = accounts.find(a => normEmail(a.email) === id);
   if (!acct) {
     return {ok: false, reason: 'noAccount'};
   }
   if (acct.hash !== digest(password)) {
     return {ok: false, reason: 'badPassword'};
   }
-  return {ok: true, session: await startSession(id)};
+  const session = await write(K.SESSION, {
+    email: acct.email,
+    supervisorId: acct.supervisorId,
+    signedInAt: new Date().toISOString(),
+    // Drives the skippable change-password prompt straight after sign-in.
+    mustResetPassword: !!acct.mustResetPassword,
+    passwordPromptDone: false,
+  });
+  return {ok: true, session};
 }
 
-export async function resetPassword(supervisorId, password) {
-  const id = normId(supervisorId);
+/**
+ * The supervisor supplies the password they currently hold — which may still be
+ * the temporary one from the IT team — plus the new one.
+ */
+export async function changePassword(email, oldPassword, newPassword) {
+  const id = normEmail(email);
   const accounts = await getAccounts();
-  const acct = accounts.find(a => a.supervisorId === id);
+  const acct = accounts.find(a => normEmail(a.email) === id);
   if (!acct) {
     return {ok: false, reason: 'noAccount'};
   }
-  acct.hash = digest(password);
-  acct.passwordResetAt = new Date().toISOString();
+  if (acct.hash !== digest(oldPassword)) {
+    return {ok: false, reason: 'badOldPassword'};
+  }
+  acct.hash = digest(newPassword);
+  acct.mustResetPassword = false;
+  acct.passwordChangedAt = new Date().toISOString();
   await write(K.ACCOUNTS, accounts);
+  const session = await getSession();
+  if (session) {
+    await write(K.SESSION, {...session, mustResetPassword: false, passwordPromptDone: true});
+  }
   return {ok: true};
 }
 
-async function startSession(supervisorId) {
-  return write(K.SESSION, {supervisorId, signedInAt: new Date().toISOString()});
+/** Called when the supervisor chooses to keep the temporary password for now. */
+export async function dismissPasswordPrompt() {
+  const session = await getSession();
+  if (!session) {
+    return null;
+  }
+  return write(K.SESSION, {...session, passwordPromptDone: true});
 }
 
 export const getSession = () => read(K.SESSION, null);

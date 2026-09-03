@@ -9,6 +9,7 @@ import {
   clearDemoData,
   flushQueue,
   getSession,
+  dismissPasswordPrompt,
   isProfileComplete,
   loadAll,
   seedDemoHistory,
@@ -23,8 +24,7 @@ import {isDemoWorker} from './demo';
 import {MATCH_THRESHOLD, cosineSimilarity, extractFaceEmbedding, faceErrorMessage} from './face';
 
 import SignInScreen from './screens/SignInScreen';
-import SignUpScreen from './screens/SignUpScreen';
-import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import ChangePasswordScreen from './screens/ChangePasswordScreen';
 import ProfileSetupScreen from './screens/ProfileSetupScreen';
 import LocationGateScreen from './screens/LocationGateScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -43,7 +43,7 @@ function Shell() {
   const {t: tr} = useLang();
   const [booted, setBooted] = useState(false);
   const [session, setSession] = useState(null);
-  const [authScreen, setAuthScreen] = useState('signIn'); // signIn | signUp | forgot
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [data, setData] = useState({
     profile: null,
     ward: null,
@@ -359,33 +359,35 @@ function Shell() {
   }
 
   if (!session) {
-    if (authScreen === 'signUp') {
-      return (
-        <SignUpScreen
-          onBack={() => setAuthScreen('signIn')}
-          onSignedUp={async s => {
-            const all = await loadAll();
-            setSession(s);
-            setData(all);
-            setGate('checking');
-            setScreen('home');
-          }}
-        />
-      );
-    }
-    if (authScreen === 'forgot') {
-      return <ForgotPasswordScreen onBack={() => setAuthScreen('signIn')} onDone={() => setAuthScreen('signIn')} />;
-    }
     return (
       <SignInScreen
-        onSignUp={() => setAuthScreen('signUp')}
-        onForgot={() => setAuthScreen('forgot')}
         onSignedIn={async s => {
           const all = await loadAll();
           setSession(s);
           setData(all);
           setGate('checking');
           setScreen('home');
+        }}
+      />
+    );
+  }
+
+  // Signed in on the password the IT team issued: offer to change it, but let
+  // the supervisor carry on with the temporary one if they would rather.
+  const mustPrompt = session.mustResetPassword && !session.passwordPromptDone;
+  if (mustPrompt || showPasswordChange) {
+    return (
+      <ChangePasswordScreen
+        email={session.email}
+        forced={mustPrompt}
+        onBack={() => setShowPasswordChange(false)}
+        onDone={() => {
+          setShowPasswordChange(false);
+          setSession(sess => ({...sess, mustResetPassword: false, passwordPromptDone: true}));
+        }}
+        onSkip={async () => {
+          const updated = await dismissPasswordPrompt();
+          setSession(updated || {...session, passwordPromptDone: true});
         }}
       />
     );
@@ -587,12 +589,13 @@ function Shell() {
           lastSync={data.lastSync}
           isOnline={isOnline}
           onDemo={onDemo}
+          onChangePassword={() => setShowPasswordChange(true)}
           navigate={async target => {
             if (target === 'signOut') {
               await clearSession();
               setSession(null);
               setGate('checking');
-              setAuthScreen('signIn');
+              setShowPasswordChange(false);
               return;
             }
             if (target === 'attendance') {

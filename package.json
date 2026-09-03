@@ -17,6 +17,7 @@
     "@react-native-ml-kit/face-detection": "^2.0.1",
     "base64-js": "^1.5.1",
     "jpeg-js": "^0.4.4",
+    "js-sha3": "^0.13.0",
     "react": "18.3.1",
     "react-native": "0.76.9",
     "react-native-fast-tflite": "^1.6.1",
