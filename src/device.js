@@ -28,7 +28,7 @@ const shape = pos => ({
 });
 
 /** One-shot fix. Resolves null rather than rejecting, so attendance is never blocked by a throw. */
-export function getLocation({timeout = 15000} = {}) {
+export function getLocation({timeout = 15000, maximumAge = 15000} = {}) {
   return new Promise(resolve => {
     let done = false;
     const finish = v => {
@@ -40,7 +40,7 @@ export function getLocation({timeout = 15000} = {}) {
     Geolocation.getCurrentPosition(
       pos => finish(shape(pos)),
       () => finish(null),
-      {enableHighAccuracy: true, timeout, maximumAge: 15000},
+      {enableHighAccuracy: true, timeout, maximumAge},
     );
     setTimeout(() => finish(null), timeout + 1000);
   });

@@ -346,6 +346,25 @@ export function LanguageToggle({style}) {
   );
 }
 
+/** Live password-policy checklist used on sign-up and password reset. */
+export function PasswordChecklist({results, labels, style}) {
+  return (
+    <View style={[{marginTop: -6, marginBottom: 16}, style]}>
+      {results.map(r => (
+        <View key={r.key} style={s.ruleRow}>
+          <Icon
+            name={r.ok ? 'check-circle' : 'radio-button-unchecked'}
+            size={17}
+            color={r.ok ? c.success : c.textDisabled}
+            style={{marginRight: 9}}
+          />
+          <Text style={[s.ruleText, r.ok && {color: c.onSuccessContainer}]}>{labels[r.key]}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function BottomBar({children, style}) {
   return <View style={[s.bottomBar, style]}>{children}</View>;
 }
@@ -533,6 +552,8 @@ const s = StyleSheet.create({
     paddingBottom: 16,
   },
 
+  ruleRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 3},
+  ruleText: {fontSize: 13, color: c.textMuted, flex: 1},
   empty: {alignItems: 'center', justifyContent: 'center', padding: 40},
   emptyText: {marginTop: 12, textAlign: 'center', color: c.textMuted, fontSize: 14, lineHeight: 20},
 });

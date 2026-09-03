@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {dateKey} from './domain/shifts';
+import {digest} from './domain/password';
+import {buildDemoHistory, buildDemoWorkers} from './demo';
 
 const K = {
+  ACCOUNTS: '@accounts',
   SESSION: '@session',
   PROFILE: '@profile',
   WARD: '@ward',
@@ -12,17 +15,25 @@ const K = {
   ISSUES: '@boundaryIssues',
 };
 
-// Credentials the IT Administrator would issue. Local until a backend exists.
-const ACCOUNTS = [{id: 'SUP-042', password: 'ward42', wardCode: 'W42'}];
+// A pre-provisioned account so the app can be tested without registering.
+// In the full system the IT Administrator issues these.
+export const DEMO_CREDENTIALS = {id: 'SUP-042', password: 'Nagar@2026'};
 
-// The ward the signed-in supervisor is assigned to. In the full system this
-// arrives from the server with a geo-fence drawn by the IT Administrator.
+const SEED_ACCOUNT = {
+  supervisorId: DEMO_CREDENTIALS.id,
+  hash: digest(DEMO_CREDENTIALS.password),
+  wardCode: 'W42',
+  createdAt: null,
+};
+
+// The ward the supervisor is assigned to. In the full system this arrives from
+// the server with a geo-fence drawn per ward by the IT Administrator.
 const DEFAULT_WARD = {
   code: 'W42',
   number: 42,
   name: 'Ward 42 — Dharampur',
   shortName: 'Ward 42',
-  center: null, // provisioned on first GPS fix; see setWardCentre
+  center: null, // provisioned from the device until a backend supplies it
   radiusM: 800,
 };
 
@@ -34,41 +45,110 @@ async function write(key, value) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
   return value;
 }
-
 const uid = p => `${p}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+const normId = v => String(v || '').trim().toUpperCase();
 
-/* ---------------------------------------------------------------- session */
+/* --------------------------------------------------------------- accounts */
+
+export async function getAccounts() {
+  const list = await read(K.ACCOUNTS, null);
+  if (list) {
+    return list;
+  }
+  return write(K.ACCOUNTS, [SEED_ACCOUNT]);
+}
+
+export async function accountExists(supervisorId) {
+  const accounts = await getAccounts();
+  return accounts.some(a => a.supervisorId === normId(supervisorId));
+}
+
+export async function signUp(supervisorId, password) {
+  const id = normId(supervisorId);
+  const accounts = await getAccounts();
+  if (accounts.some(a => a.supervisorId === id)) {
+    return {ok: false, reason: 'exists'};
+  }
+  accounts.push({
+    supervisorId: id,
+    hash: digest(password),
+    wardCode: DEFAULT_WARD.code,
+    createdAt: new Date().toISOString(),
+  });
+  await write(K.ACCOUNTS, accounts);
+  return {ok: true, session: await startSession(id)};
+}
 
 export async function signIn(supervisorId, password) {
-  const id = String(supervisorId || '').trim().toUpperCase();
-  const acct = ACCOUNTS.find(a => a.id === id && a.password === password);
+  const id = normId(supervisorId);
+  const accounts = await getAccounts();
+  const acct = accounts.find(a => a.supervisorId === id);
   if (!acct) {
-    return null;
+    return {ok: false, reason: 'noAccount'};
   }
-  const session = {supervisorId: acct.id, signedInAt: new Date().toISOString()};
-  await write(K.SESSION, session);
-  return session;
+  if (acct.hash !== digest(password)) {
+    return {ok: false, reason: 'badPassword'};
+  }
+  return {ok: true, session: await startSession(id)};
+}
+
+export async function resetPassword(supervisorId, password) {
+  const id = normId(supervisorId);
+  const accounts = await getAccounts();
+  const acct = accounts.find(a => a.supervisorId === id);
+  if (!acct) {
+    return {ok: false, reason: 'noAccount'};
+  }
+  acct.hash = digest(password);
+  acct.passwordResetAt = new Date().toISOString();
+  await write(K.ACCOUNTS, accounts);
+  return {ok: true};
+}
+
+async function startSession(supervisorId) {
+  return write(K.SESSION, {supervisorId, signedInAt: new Date().toISOString()});
 }
 
 export const getSession = () => read(K.SESSION, null);
 export const signOut = () => AsyncStorage.removeItem(K.SESSION);
 
+/* ---------------------------------------------------------------- profile */
+
 export const getProfile = () => read(K.PROFILE, null);
 export const saveProfile = p => write(K.PROFILE, {...p, completedAt: new Date().toISOString()});
 
+/**
+ * The supervisor's own details must be complete for the app to function, and
+ * this is re-checked on every sign-in — not just the first.
+ */
+export function profileGaps(profile) {
+  const gaps = [];
+  if (!profile) {
+    return ['name', 'mobile', 'designation', 'photo'];
+  }
+  if (!profile.name || profile.name.trim().length < 3) {
+    gaps.push('name');
+  }
+  if (!/^\d{10}$/.test(String(profile.mobile || '').replace(/\D/g, ''))) {
+    gaps.push('mobile');
+  }
+  if (!profile.designation || !profile.designation.trim()) {
+    gaps.push('designation');
+  }
+  if (!profile.photoUri) {
+    gaps.push('photo');
+  }
+  return gaps;
+}
+export const isProfileComplete = profile => profileGaps(profile).length === 0;
+
+/* ------------------------------------------------------------------- ward */
+
 export async function getWard() {
   const w = await read(K.WARD, null);
-  if (w) {
-    return w;
-  }
-  return write(K.WARD, DEFAULT_WARD);
+  return w || write(K.WARD, DEFAULT_WARD);
 }
 
-/**
- * Provision the ward centre from the first reliable GPS fix, so the geo-fence
- * is meaningful wherever the app is being used. In production this value is
- * supplied by the IT Administrator and this call is never made.
- */
 export async function setWardCentre(position, {force = false} = {}) {
   const ward = await getWard();
   if (!position || (ward.center && !force)) {
@@ -102,8 +182,7 @@ export async function addWorker(worker) {
 }
 
 export async function removeWorker(id) {
-  const workers = (await getWorkers()).filter(w => w.id !== id);
-  return write(K.WORKERS, workers);
+  return write(K.WORKERS, (await getWorkers()).filter(w => w.id !== id));
 }
 
 /* ------------------------------------------------------------- attendance */
@@ -138,11 +217,6 @@ export async function addLeave(leave) {
 
 export const getLastSync = () => read(K.SYNC, null);
 
-/**
- * Offline-first: records are always written locally first and flushed when the
- * device is online. There is no server yet, so flushing marks the queue as sent.
- * Point this at the attendance API when the backend exists.
- */
 export async function flushQueue(isOnline) {
   const records = await getAttendance();
   const queued = records.filter(r => !r.synced);
@@ -165,6 +239,51 @@ export async function reportBoundaryIssue(payload) {
   const issues = await read(K.ISSUES, []);
   issues.unshift({id: uid('bi'), at: new Date().toISOString(), ...payload});
   return write(K.ISSUES, issues);
+}
+
+/* -------------------------------------------------------------- demo data */
+
+export async function seedDemoWorkers() {
+  const ward = await getWard();
+  const existing = await getWorkers();
+  if (existing.some(w => w.demo)) {
+    return {workers: existing, added: 0};
+  }
+  const demo = buildDemoWorkers(ward.code, 110 + existing.length);
+  const workers = existing.concat(demo);
+  await write(K.WORKERS, workers);
+  return {workers, added: demo.length};
+}
+
+export async function seedDemoHistory(supervisorId) {
+  const ward = await getWard();
+  let workers = await getWorkers();
+  let added = 0;
+  if (!workers.some(w => w.demo)) {
+    const seeded = await seedDemoWorkers();
+    workers = seeded.workers;
+    added = seeded.added;
+  }
+  const demoWorkers = workers.filter(w => w.demo);
+  const {records, leaves} = buildDemoHistory(demoWorkers, 21, supervisorId, ward.code);
+
+  const keptRecords = (await getAttendance()).filter(r => !r.demo);
+  const keptLeaves = (await getLeaves()).filter(l => !l.demo);
+  const allRecords = keptRecords.concat(records).sort((a, b) => (a.capturedAt < b.capturedAt ? 1 : -1));
+  await write(K.ATTENDANCE, allRecords);
+  await write(K.LEAVES, keptLeaves.concat(leaves));
+  await write(K.SYNC, new Date().toISOString());
+  return {workers, records: allRecords, leaves: keptLeaves.concat(leaves), added};
+}
+
+export async function clearDemoData() {
+  const workers = (await getWorkers()).filter(w => !w.demo);
+  const records = (await getAttendance()).filter(r => !r.demo);
+  const leaves = (await getLeaves()).filter(l => !l.demo);
+  await write(K.WORKERS, workers);
+  await write(K.ATTENDANCE, records);
+  await write(K.LEAVES, leaves);
+  return {workers, records, leaves};
 }
 
 /* ------------------------------------------------------------- aggregates */

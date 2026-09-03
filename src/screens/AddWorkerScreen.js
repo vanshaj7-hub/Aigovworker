@@ -5,6 +5,8 @@ import {useLang} from '../i18n';
 import {AppBar, BottomBar, Divider, Field, FilledButton, Icon, Screen, TextButton} from '../ui';
 import {addWorker} from '../storage';
 import {extractFaceEmbedding, faceErrorMessage} from '../face';
+import {pickFromGallery} from '../device';
+import PhotoSourceSheet from '../PhotoSourceSheet';
 
 export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
   const {t: tr} = useLang();
@@ -14,12 +16,13 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
   const [mobile, setMobile] = useState('');
   const [designation, setDesignation] = useState(designations[0]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [embedding, setEmbedding] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const captureReference = async () => {
-    const uri = await openCamera();
+  const captureReference = async getUri => {
+    const uri = await getUri();
     if (!uri) {
       return;
     }
@@ -61,7 +64,7 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
       <AppBar title={tr('addWorker')} onBack={onBack} />
       <Divider />
       <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={captureReference} style={s.refCard}>
+        <Pressable onPress={() => setSourceOpen(true)} style={s.refCard}>
           <View style={s.refThumb}>
             {photo ? (
               <Image source={{uri: photo}} style={s.refImg} />
@@ -103,6 +106,13 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
         <TextButton label={tr('cancel')} onPress={onBack} />
         <FilledButton label={tr('saveWorker')} onPress={save} busy={busy} style={{minWidth: 160}} />
       </BottomBar>
+
+      <PhotoSourceSheet
+        visible={sourceOpen}
+        onClose={() => setSourceOpen(false)}
+        onCamera={() => captureReference(openCamera)}
+        onGallery={() => captureReference(pickFromGallery)}
+      />
 
       <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
         <Pressable style={s.modalBg} onPress={() => setPickerOpen(false)}>

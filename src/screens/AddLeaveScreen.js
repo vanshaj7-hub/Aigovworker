@@ -14,6 +14,7 @@ import {
   Icon,
   Screen,
   SectionLabel,
+  SegmentPill,
   Switch,
 } from '../ui';
 import {addLeave} from '../storage';
@@ -42,6 +43,7 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [bothShifts, setBothShifts] = useState(true);
+  const [shift, setShift] = useState(1);
   const [remarks, setRemarks] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState(null);
@@ -61,7 +63,7 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
         type,
         ...range,
         bothShifts,
-        shift: bothShifts ? null : 1,
+        shift: bothShifts ? null : shift,
         remarks: remarks.trim(),
       });
       onSaved(leaves, worker);
@@ -129,6 +131,27 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
           </View>
           <Switch value={bothShifts} onValueChange={setBothShifts} />
         </View>
+
+        {!bothShifts ? (
+          <>
+            <SectionLabel>{tr('whichShift')}</SectionLabel>
+            <View style={s.shiftRow}>
+              <SegmentPill
+                label={tr('shift1')}
+                icon="wb-sunny"
+                selected={shift === 1}
+                onPress={() => setShift(1)}
+                style={{marginRight: 10}}
+              />
+              <SegmentPill
+                label={tr('shift2')}
+                icon="wb-twilight"
+                selected={shift === 2}
+                onPress={() => setShift(2)}
+              />
+            </View>
+          </>
+        ) : null}
 
         <View style={{paddingHorizontal: 16, marginTop: 18}}>
           <Field label={tr('remarks')} value={remarks} onChangeText={setRemarks} multiline />
@@ -201,6 +224,7 @@ const s = StyleSheet.create({
   },
   workerName: {fontSize: 16, fontWeight: '600', color: c.text},
   chipRow: {flexDirection: 'row', paddingHorizontal: 16, marginBottom: 20},
+  shiftRow: {flexDirection: 'row', paddingHorizontal: 16, marginBottom: 4},
   dateRow: {flexDirection: 'row', paddingHorizontal: 16},
   toggleCard: {
     flexDirection: 'row',

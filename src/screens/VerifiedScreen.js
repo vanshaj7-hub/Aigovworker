@@ -36,17 +36,22 @@ function Thumb({uri, caption, fallbackIcon}) {
 
 export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
   const {t: tr} = useLang();
+  const verified = record.verified !== false;
   const pct = Math.round((record.matchScore || 0) * 100);
 
   return (
     <Screen bg={c.surface}>
       <ScrollView contentContainerStyle={{paddingBottom: 10}}>
-        <View style={s.hero}>
-          <View style={s.heroIcon}>
-            <Icon name="check" size={34} color="#fff" />
+        <View style={[s.hero, !verified && {backgroundColor: c.warningContainer}]}>
+          <View style={[s.heroIcon, !verified && {backgroundColor: c.warningStrong}]}>
+            <Icon name={verified ? 'check' : 'info-outline'} size={34} color="#fff" />
           </View>
-          <Text style={s.heroTitle}>{tr('identityVerified')}</Text>
-          <Text style={s.heroSub}>{tr('faceMatched')}</Text>
+          <Text style={[s.heroTitle, !verified && {color: c.onWarningContainer}]}>
+            {verified ? tr('identityVerified') : tr('unverified')}
+          </Text>
+          <Text style={[s.heroSub, !verified && {color: c.onWarningContainer}]}>
+            {verified ? tr('faceMatched') : tr('demoNotice')}
+          </Text>
         </View>
 
         <View style={s.body}>
@@ -55,8 +60,14 @@ export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
             <Icon name="compare-arrows" size={24} color={c.success} style={{marginHorizontal: 12}} />
             <Thumb uri={worker.photoUri} caption={tr('onFile')} fallbackIcon="person" />
             <View style={{flex: 1, alignItems: 'flex-end'}}>
-              <Text style={s.score}>{pct}%</Text>
-              <Text style={t.small}>{tr('matchScore')}</Text>
+              {verified ? (
+                <>
+                  <Text style={s.score}>{pct}%</Text>
+                  <Text style={t.small}>{tr('matchScore')}</Text>
+                </>
+              ) : (
+                <StatusPill label={tr('unverified')} tone="warning" />
+              )}
             </View>
           </View>
 
@@ -80,7 +91,7 @@ export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
           <View style={s.logged}>
             <Icon name="assignment-turned-in" size={21} style={{marginRight: 12}} />
             <Text style={[t.body, {flex: 1}]}>{tr('loggedLine')}</Text>
-            <StatusPill label={tr('present')} tone="present" />
+            <StatusPill label={tr('present')} tone={verified ? 'present' : 'warning'} />
           </View>
         </View>
       </ScrollView>

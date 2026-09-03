@@ -1,44 +1,73 @@
-import React, {useState} from 'react';
-import {Alert, Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import React, {useMemo, useState} from 'react';
+import {Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {
   AppBar,
+  Banner,
   BottomBar,
-  Divider,
   Field,
   FilledButton,
   Icon,
   Screen,
   StatusPill,
 } from '../ui';
-import {saveProfile} from '../storage';
+import {profileGaps, saveProfile} from '../storage';
 import {pickFromGallery} from '../device';
+import PhotoSourceSheet from '../PhotoSourceSheet';
 
-export default function ProfileSetupScreen({session, ward, onDone}) {
+export default function ProfileSetupScreen({session, ward, profile, onDone, openCamera}) {
   const {t: tr} = useLang();
-  const [name, setName] = useState('');
-  const [mobile, setMobile] = useState('');
-  const [designation, setDesignation] = useState(tr('designations')[3]);
-  const [photo, setPhoto] = useState(null);
+  const designations = tr('designations');
+  const [name, setName] = useState(profile?.name || '');
+  const [mobile, setMobile] = useState(profile?.mobile || '');
+  const [designation, setDesignation] = useState(profile?.designation || designations[3]);
+  const [photo, setPhoto] = useState(profile?.photoUri || null);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Re-entering because an earlier profile was left incomplete.
+  const returning = !!profile;
+  const gaps = useMemo(
+    () => profileGaps({name, mobile, designation, photoUri: photo}),
+    [name, mobile, designation, photo],
+  );
+  const gapWords = gaps
+    .map(g => tr('gap' + g.charAt(0).toUpperCase() + g.slice(1)))
+    .join(', ');
+
+  const setPhotoFrom = async fn => {
+    const uri = await fn();
+    if (uri) {
+      setPhoto(uri);
+    }
+  };
+
   const save = async () => {
-    if (!name.trim()) {
+    if (gaps.includes('name')) {
       Alert.alert(tr('completeProfile'), tr('nameRequired'));
+      return;
+    }
+    if (gaps.includes('mobile')) {
+      Alert.alert(tr('completeProfile'), tr('mobileInvalid'));
+      return;
+    }
+    if (gaps.includes('photo')) {
+      Alert.alert(tr('completeProfile'), tr('photoRequired'));
       return;
     }
     setBusy(true);
     try {
-      const profile = await saveProfile({
+      const saved = await saveProfile({
         supervisorId: session.supervisorId,
         name: name.trim(),
-        mobile: mobile.trim(),
+        mobile: String(mobile).replace(/\D/g, ''),
         designation,
         photoUri: photo,
         wardCode: ward.code,
       });
-      onDone(profile);
+      onDone(saved);
     } finally {
       setBusy(false);
     }
@@ -55,7 +84,17 @@ export default function ProfileSetupScreen({session, ward, onDone}) {
       </View>
 
       <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={async () => setPhoto((await pickFromGallery()) || photo)} style={s.avatarWrap}>
+        {returning && gaps.length ? (
+          <Banner
+            tone="warning"
+            icon="error-outline"
+            title={tr('profileIncomplete')}
+            body={tr('profileIncompleteBody', {gaps: gapWords})}
+            style={{marginBottom: 22}}
+          />
+        ) : null}
+
+        <Pressable onPress={() => setSourceOpen(true)} style={s.avatarWrap}>
           {photo ? (
             <Image source={{uri: photo}} style={s.avatarImg} />
           ) : (
@@ -70,11 +109,16 @@ export default function ProfileSetupScreen({session, ward, onDone}) {
         <Field
           label={tr('mobileNumber')}
           value={mobile}
-          onChangeText={setMobile}
+          onChangeText={v => setMobile(v.replace(/\D/g, '').slice(0, 10))}
           icon="call"
           keyboardType="phone-pad"
         />
-        <Field label={tr('designation')} value={designation} onChangeText={setDesignation} />
+        <Field
+          label={tr('designation')}
+          value={designation}
+          onPress={() => setPickerOpen(true)}
+          right={<Icon name="expand-more" size={22} />}
+        />
 
         <View style={s.wardCard}>
           <Icon name="gpp-good" size={24} color={c.success} style={{marginRight: 14}} />
@@ -88,8 +132,41 @@ export default function ProfileSetupScreen({session, ward, onDone}) {
       </ScrollView>
 
       <BottomBar>
-        <FilledButton label={tr('saveContinue')} onPress={save} busy={busy} />
+        <FilledButton
+          label={tr('saveContinue')}
+          onPress={save}
+          busy={busy}
+          disabled={gaps.length > 0}
+        />
       </BottomBar>
+
+      <PhotoSourceSheet
+        visible={sourceOpen}
+        title={tr('addYourPhoto')}
+        onClose={() => setSourceOpen(false)}
+        onCamera={() => setPhotoFrom(openCamera)}
+        onGallery={() => setPhotoFrom(pickFromGallery)}
+      />
+
+      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+        <Pressable style={s.modalBg} onPress={() => setPickerOpen(false)}>
+          <View style={s.sheet}>
+            <Text style={[t.label, {marginBottom: 8}]}>{tr('designation')}</Text>
+            {designations.map(d => (
+              <Pressable
+                key={d}
+                onPress={() => {
+                  setDesignation(d);
+                  setPickerOpen(false);
+                }}
+                style={s.sheetRow}>
+                <Text style={[t.body, {flex: 1, fontSize: 16}]}>{d}</Text>
+                {designation === d ? <Icon name="check" size={20} color={c.primary} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -98,7 +175,7 @@ const s = StyleSheet.create({
   step: {color: c.primaryDark, fontSize: 14, fontWeight: '600'},
   progressTrack: {height: 4, backgroundColor: c.outlineSoft},
   progressFill: {width: '50%', height: 4, backgroundColor: c.primary},
-  body: {padding: 20, paddingTop: 26},
+  body: {padding: 20, paddingTop: 24},
   avatarWrap: {alignSelf: 'center'},
   avatarImg: {width: 104, height: 104, borderRadius: 52},
   avatarPlaceholder: {
@@ -125,4 +202,7 @@ const s = StyleSheet.create({
   },
   wardName: {fontSize: 16, fontWeight: '600', color: c.text, marginTop: 2},
   note: {...t.bodyMuted, fontSize: 13, lineHeight: 19, marginTop: 14},
+  modalBg: {flex: 1, backgroundColor: '#00000066', justifyContent: 'flex-end'},
+  sheet: {backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20},
+  sheetRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 15},
 });

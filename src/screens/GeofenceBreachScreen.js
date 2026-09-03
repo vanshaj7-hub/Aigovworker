@@ -45,7 +45,7 @@ function FenceMap({wardLabel, youLabel, distanceLabel}) {
   );
 }
 
-export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRecentre}) {
+export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRecentre, movedAfterMatch}) {
   const {t: tr} = useLang();
   const dist = formatDistance(fence.overshoot);
 
@@ -65,8 +65,14 @@ export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRe
           <View style={s.heroIcon}>
             <Icon name="wrong-location" size={32} color="#fff" />
           </View>
-          <Text style={s.heroTitle}>{tr('outsideGeofenceTitle')}</Text>
-          <Text style={s.heroSub}>{tr('geofenceBreachBody', {ward: ward.shortName})}</Text>
+          <Text style={s.heroTitle}>
+            {movedAfterMatch ? tr('movedOutside') : tr('outsideGeofenceTitle')}
+          </Text>
+          <Text style={s.heroSub}>
+            {movedAfterMatch
+              ? tr('movedOutsideBody')
+              : tr('geofenceBreachBody', {ward: ward.shortName})}
+          </Text>
         </View>
 
         <View style={s.body}>

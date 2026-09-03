@@ -6,19 +6,27 @@ import {c} from './theme';
 import {LanguageProvider, useLang} from './i18n';
 import {
   addAttendance,
+  clearDemoData,
   flushQueue,
   getSession,
+  isProfileComplete,
   loadAll,
+  seedDemoHistory,
+  seedDemoWorkers,
   setWardCentre,
   signOut as clearSession,
 } from './storage';
 import {getLocation, requestPermissions, watchLocation} from './device';
 import {evaluateFence} from './domain/geo';
 import {currentShift, dateKey} from './domain/shifts';
+import {isDemoWorker} from './demo';
 import {MATCH_THRESHOLD, cosineSimilarity, extractFaceEmbedding, faceErrorMessage} from './face';
 
-import LoginScreen from './screens/LoginScreen';
+import SignInScreen from './screens/SignInScreen';
+import SignUpScreen from './screens/SignUpScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import ProfileSetupScreen from './screens/ProfileSetupScreen';
+import LocationGateScreen from './screens/LocationGateScreen';
 import HomeScreen from './screens/HomeScreen';
 import SelectWorkerScreen from './screens/SelectWorkerScreen';
 import CaptureScreen from './screens/CaptureScreen';
@@ -35,6 +43,7 @@ function Shell() {
   const {t: tr} = useLang();
   const [booted, setBooted] = useState(false);
   const [session, setSession] = useState(null);
+  const [authScreen, setAuthScreen] = useState('signIn'); // signIn | signUp | forgot
   const [data, setData] = useState({
     profile: null,
     ward: null,
@@ -47,10 +56,16 @@ function Shell() {
   const [isOnline, setIsOnline] = useState(true);
   const [position, setPosition] = useState(null);
   const [shiftId, setShiftId] = useState(currentShift().id);
-  const [active, setActive] = useState(null); // worker being marked
-  const [result, setResult] = useState(null); // last verified record
-  const [captureFor, setCaptureFor] = useState(null); // 'attendance' | 'reference'
-  const referenceResolver = useRef(null);
+  const [active, setActive] = useState(null);
+  const [result, setResult] = useState(null);
+  const [breach, setBreach] = useState(null); // {reason: 'outside'|'moved'}
+  const [gate, setGate] = useState('checking'); // checking | ok | blocked
+  const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
+  const alive = useRef(true);
+
+  useEffect(() => () => {
+    alive.current = false;
+  }, []);
 
   /* ------------------------------------------------------------- bootstrap */
   useEffect(() => {
@@ -65,30 +80,26 @@ function Shell() {
   }, []);
 
   useEffect(() => {
-    const unsub = NetInfo.addEventListener(state => {
-      setIsOnline(!!state.isConnected);
-    });
+    const unsub = NetInfo.addEventListener(st => setIsOnline(!!st.isConnected));
     return unsub;
   }, []);
 
-  // Live position for the geo-fence chip.
+  // Live position for the geo-fence indicators.
   useEffect(() => {
     if (!session) {
       return undefined;
     }
-    let stop = () => {};
-    getLocation().then(p => p && setPosition(p));
-    stop = watchLocation(p => setPosition(p));
+    getLocation().then(p => p && alive.current && setPosition(p));
+    const stop = watchLocation(p => alive.current && setPosition(p));
     return () => stop();
   }, [session]);
 
-  // Flush the offline queue whenever connectivity returns.
   useEffect(() => {
     if (!isOnline || !session) {
       return;
     }
     flushQueue(true).then(res => {
-      if (res.synced > 0) {
+      if (res.synced > 0 && alive.current) {
         setData(d => ({...d, records: res.records, lastSync: new Date().toISOString()}));
       }
     });
@@ -100,56 +111,149 @@ function Shell() {
     position,
   };
 
+  /* ------------------------------------------------------- location gate */
+
+  const runGate = useCallback(async () => {
+    setGate('checking');
+    // A cold start often has no fix yet, so ask a few times and never accept a
+    // cached position for this check.
+    let fix = null;
+    for (let i = 0; i < 3 && !fix && alive.current; i++) {
+      fix = await getLocation({timeout: 10000, maximumAge: 0});
+    }
+    if (fix) {
+      setPosition(fix);
+    }
+    // No administrator fence yet — provision it from this device's position so
+    // the ward has a centre. Replaced by the server value once a backend exists.
+    let ward = data.ward;
+    if (ward && !ward.center && fix) {
+      ward = await setWardCentre(fix);
+      setData(d => ({...d, ward}));
+    }
+    const f = evaluateFence(fix, ward);
+    // Anything other than a confirmed "inside" keeps the app locked.
+    setGate(f.state === 'inside' ? 'ok' : 'blocked');
+  }, [data.ward, position]);
+
+  const profileReady = isProfileComplete(data.profile);
+
+  useEffect(() => {
+    if (session && profileReady && gate === 'checking') {
+      runGate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, profileReady]);
+
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
     setScreen('home');
     setActive(null);
     setResult(null);
+    setBreach(null);
   }, []);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (screen === 'home' || !session) {
+      if (photoRequest) {
+        photoRequest.resolve(null);
+        setPhotoRequest(null);
+        return true;
+      }
+      if (!session || screen === 'home') {
         return false;
       }
       goHome();
       return true;
     });
     return () => sub.remove();
-  }, [screen, session, goHome]);
+  }, [screen, session, goHome, photoRequest]);
 
-  /* -------------------------------------------------------------- capture  */
+  /* ------------------------------------------------- shared photo capture */
 
-  const openReferenceCamera = useCallback(
-    () =>
-      new Promise(resolve => {
-        referenceResolver.current = resolve;
-        setCaptureFor('reference');
-        setScreen('capture');
-      }),
+  // Used by the profile screen and worker onboarding; resolves with a file URI.
+  const requestPhoto = useCallback(
+    title => new Promise(resolve => setPhotoRequest({title, resolve})),
     [],
+  );
+
+  /* ----------------------------------------------------- attendance capture */
+
+  const writeRecord = useCallback(
+    async ({worker, faceUri, score, verified, fix, f}) => {
+      await RNFS.mkdir(PHOTO_DIR).catch(() => {});
+      let stored = faceUri;
+      if (faceUri) {
+        try {
+          const dest = `${PHOTO_DIR}/${Date.now()}.jpg`;
+          await RNFS.copyFile(faceUri.replace('file://', ''), dest);
+          stored = `file://${dest}`;
+        } catch (e) {
+          // keep the temporary crop
+        }
+      }
+      const {records, record} = await addAttendance({
+        workerId: worker.id,
+        workerName: worker.name,
+        date: dateKey(new Date()),
+        shift: shiftId,
+        capturedAt: new Date().toISOString(),
+        matchScore: score,
+        verified,
+        location: fix ? {lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy} : null,
+        insideGeofence: true,
+        distanceM: f && f.distance != null ? Math.round(f.distance) : null,
+        photoUri: stored,
+        supervisorId: session.supervisorId,
+        wardCode: data.ward.code,
+        demo: !!worker.demo,
+      });
+      setData(d => ({...d, records}));
+      setResult(record);
+      setScreen('verified');
+      if (isOnline) {
+        flushQueue(true).then(res =>
+          alive.current &&
+          setData(d => ({...d, records: res.records, lastSync: new Date().toISOString()})),
+        );
+      }
+    },
+    [shiftId, session, data.ward, isOnline],
   );
 
   const onCaptured = useCallback(
     async uri => {
-      if (captureFor === 'reference') {
-        const resolve = referenceResolver.current;
-        referenceResolver.current = null;
-        setCaptureFor(null);
-        setScreen('addWorker');
-        resolve(uri);
+      const worker = active;
+      if (!worker) {
         return;
       }
 
-      // Attendance capture: fence first, then identity.
-      const fresh = (await getLocation({timeout: 8000})) || position;
-      const f = evaluateFence(fresh, data.ward);
+      // 1. Location before anything else.
+      const fix = (await getLocation({timeout: 8000})) || position;
+      const f = evaluateFence(fix, data.ward);
       if (f.state === 'outside') {
-        setPosition(fresh || position);
+        setPosition(fix || position);
+        setBreach({reason: 'outside'});
         setScreen('breach');
         return;
       }
 
+      // 2. Demo workers carry no reference face, so there is nothing to match.
+      if (isDemoWorker(worker)) {
+        const proceed = await new Promise(resolve =>
+          Alert.alert(tr('demoNoFace'), tr('demoNoFaceBody'), [
+            {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
+            {text: tr('recordAnyway'), onPress: () => resolve(true)},
+          ]),
+        );
+        if (!proceed) {
+          return;
+        }
+        await writeRecord({worker, faceUri: uri, score: null, verified: false, fix, f});
+        return;
+      }
+
+      // 3. Identity.
       let embedding;
       let faceUri;
       try {
@@ -157,59 +261,72 @@ function Shell() {
         embedding = out.embedding;
         faceUri = out.faceUri;
       } catch (err) {
-        const code = err && err.message;
         Alert.alert(
-          code === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
+          err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
           faceErrorMessage(err, tr),
         );
         return;
       }
-
-      const score = cosineSimilarity(embedding, active.embedding || []);
+      const score = cosineSimilarity(embedding, worker.embedding || []);
       if (score < MATCH_THRESHOLD) {
-        Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: active.name}), [
-          {text: tr('tryAgain')},
-        ]);
+        Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
         return;
       }
 
-      await RNFS.mkdir(PHOTO_DIR).catch(() => {});
-      let stored = faceUri;
-      try {
-        const dest = `${PHOTO_DIR}/${Date.now()}.jpg`;
-        await RNFS.copyFile(faceUri.replace('file://', ''), dest);
-        stored = `file://${dest}`;
-      } catch (e) {
-        // keep the temporary crop if the copy fails
+      // 4. Location again — the device may have moved while the face was processed.
+      const afterFix = (await getLocation({timeout: 8000})) || fix;
+      const afterFence = evaluateFence(afterFix, data.ward);
+      if (afterFence.state === 'outside') {
+        setPosition(afterFix);
+        setBreach({reason: 'moved'});
+        setScreen('breach');
+        return;
       }
 
-      const {records, record} = await addAttendance({
-        workerId: active.id,
-        workerName: active.name,
-        date: dateKey(new Date()),
-        shift: shiftId,
-        capturedAt: new Date().toISOString(),
-        matchScore: Math.round(score * 100) / 100,
-        location: fresh ? {lat: fresh.lat, lng: fresh.lng, accuracy: fresh.accuracy} : null,
-        insideGeofence: true,
-        distanceM: f.distance == null ? null : Math.round(f.distance),
-        photoUri: stored,
-        supervisorId: session.supervisorId,
-        wardCode: data.ward.code,
+      await writeRecord({
+        worker,
+        faceUri,
+        score: Math.round(score * 100) / 100,
+        verified: true,
+        fix: afterFix,
+        f: afterFence,
       });
+    },
+    [active, position, data.ward, tr, writeRecord],
+  );
 
-      setData(d => ({...d, records}));
-      setResult(record);
-      setCaptureFor(null);
-      setScreen('verified');
+  /* ------------------------------------------------------------ demo data */
 
-      if (isOnline) {
-        flushQueue(true).then(res =>
-          setData(d => ({...d, records: res.records, lastSync: new Date().toISOString()})),
-        );
+  const onDemo = useCallback(
+    async action => {
+      try {
+        if (action === 'workers') {
+          const res = await seedDemoWorkers();
+          setData(d => ({...d, workers: res.workers}));
+          Alert.alert(
+            tr('demoData'),
+            res.added ? tr('demoWorkersAdded', {n: res.added}) : tr('demoAlready'),
+          );
+        } else if (action === 'history') {
+          const res = await seedDemoHistory(session.supervisorId);
+          setData(d => ({
+            ...d,
+            workers: res.workers,
+            records: res.records,
+            leaves: res.leaves,
+            lastSync: new Date().toISOString(),
+          }));
+          Alert.alert(tr('demoData'), tr('demoHistoryAdded'));
+        } else if (action === 'clear') {
+          const res = await clearDemoData();
+          setData(d => ({...d, workers: res.workers, records: res.records, leaves: res.leaves}));
+          Alert.alert(tr('demoData'), tr('demoCleared'));
+        }
+      } catch (err) {
+        Alert.alert(tr('demoData'), String(err && err.message ? err.message : err));
       }
     },
-    [captureFor, active, data.ward, position, shiftId, session, isOnline, tr],
+    [session, tr],
   );
 
   /* ---------------------------------------------------------------- render */
@@ -222,40 +339,107 @@ function Shell() {
     );
   }
 
-  if (!session) {
+  // The shared camera sits above every gate so the profile screen can use it.
+  if (photoRequest) {
+    const finish = uri => {
+      const {resolve} = photoRequest;
+      setPhotoRequest(null);
+      resolve(uri);
+    };
     return (
-      <LoginScreen
+      <CaptureScreen
+        worker={{name: photoRequest.title}}
+        ward={data.ward}
+        shiftId={shiftId}
+        fence={fence}
+        onCaptured={async uri => finish(uri)}
+        onCancel={() => finish(null)}
+      />
+    );
+  }
+
+  if (!session) {
+    if (authScreen === 'signUp') {
+      return (
+        <SignUpScreen
+          onBack={() => setAuthScreen('signIn')}
+          onSignedUp={async s => {
+            const all = await loadAll();
+            setSession(s);
+            setData(all);
+            setGate('checking');
+            setScreen('home');
+          }}
+        />
+      );
+    }
+    if (authScreen === 'forgot') {
+      return <ForgotPasswordScreen onBack={() => setAuthScreen('signIn')} onDone={() => setAuthScreen('signIn')} />;
+    }
+    return (
+      <SignInScreen
+        onSignUp={() => setAuthScreen('signUp')}
+        onForgot={() => setAuthScreen('forgot')}
         onSignedIn={async s => {
           const all = await loadAll();
           setSession(s);
           setData(all);
+          setGate('checking');
           setScreen('home');
         }}
       />
     );
   }
 
-  if (!data.profile) {
+  // Supervisor details must be complete — re-checked on every sign-in.
+  if (!profileReady) {
     return (
       <ProfileSetupScreen
         session={session}
         ward={data.ward}
-        onDone={async profile => {
-          // With no backend, the ward fence is provisioned from a fresh fix taken
-          // at this explicit moment. A server-supplied fence always wins.
-          const fix = await getLocation({timeout: 12000});
-          const ward = fix ? await setWardCentre(fix) : data.ward;
-          setData(d => ({...d, profile, ward}));
+        profile={data.profile}
+        openCamera={() => requestPhoto(tr('addYourPhoto'))}
+        onDone={profile => {
+          setData(d => ({...d, profile}));
+          setGate('checking');
         }}
       />
     );
   }
 
-  // Guard against rendering a detail screen after its data has been cleared —
-  // React can commit the state updates in either order during a transition.
+  if (gate !== 'ok') {
+    return (
+      <LocationGateScreen
+        ward={data.ward}
+        fence={fence}
+        checking={gate === 'checking'}
+        onRetry={runGate}
+        onRecentre={
+          data.ward && data.ward.centreFromDevice
+            ? async () => {
+                const fix = await getLocation({timeout: 12000});
+                if (!fix) {
+                  return;
+                }
+                const ward = await setWardCentre(fix, {force: true});
+                setData(d => ({...d, ward}));
+                setPosition(fix);
+                setGate('ok');
+              }
+            : null
+        }
+        onSignOut={async () => {
+          await clearSession();
+          setSession(null);
+          setGate('checking');
+        }}
+      />
+    );
+  }
+
   const effective =
     (screen === 'verified' && (!result || !active)) ||
-    (screen === 'capture' && captureFor === 'attendance' && !active)
+    (screen === 'capture' && !active)
       ? 'home'
       : screen;
 
@@ -272,11 +456,11 @@ function Shell() {
           onBack={goHome}
           onPick={w => {
             if (fence.state === 'outside') {
+              setBreach({reason: 'outside'});
               setScreen('breach');
               return;
             }
             setActive(w);
-            setCaptureFor('attendance');
             setScreen('capture');
           }}
         />
@@ -285,25 +469,12 @@ function Shell() {
     case 'capture':
       return (
         <CaptureScreen
-          worker={captureFor === 'reference' ? {name: tr('referencePhotograph')} : active}
+          worker={active}
           ward={data.ward}
           shiftId={shiftId}
           fence={fence}
           onCaptured={onCaptured}
-          onCancel={() => {
-            if (captureFor === 'reference') {
-              const resolve = referenceResolver.current;
-              referenceResolver.current = null;
-              setCaptureFor(null);
-              setScreen('addWorker');
-              if (resolve) {
-                resolve(null);
-              }
-            } else {
-              setCaptureFor(null);
-              setScreen('attendance');
-            }
-          }}
+          onCancel={() => setScreen('attendance')}
         />
       );
 
@@ -327,7 +498,20 @@ function Shell() {
         <GeofenceBreachScreen
           ward={data.ward}
           fence={fence}
+          movedAfterMatch={breach && breach.reason === 'moved'}
           onBack={goHome}
+          onRetry={async () => {
+            const p = await getLocation({timeout: 10000});
+            if (p) {
+              setPosition(p);
+            }
+            const f = evaluateFence(p || position, data.ward);
+            setBreach(null);
+            setScreen(f.state === 'outside' ? 'breach' : active ? 'capture' : 'attendance');
+            if (f.state === 'outside') {
+              setBreach({reason: 'outside'});
+            }
+          }}
           onRecentre={
             data.ward && data.ward.centreFromDevice
               ? async () => {
@@ -342,14 +526,6 @@ function Shell() {
                 }
               : null
           }
-          onRetry={async () => {
-            const p = await getLocation({timeout: 10000});
-            if (p) {
-              setPosition(p);
-            }
-            const f = evaluateFence(p || position, data.ward);
-            setScreen(f.state === 'outside' ? 'breach' : active ? 'capture' : 'attendance');
-          }}
         />
       );
 
@@ -357,7 +533,7 @@ function Shell() {
       return (
         <AddWorkerScreen
           onBack={goHome}
-          openCamera={openReferenceCamera}
+          openCamera={() => requestPhoto(tr('referencePhotograph'))}
           onSaved={(workers, worker) => {
             setData(d => ({...d, workers}));
             Alert.alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
@@ -396,9 +572,7 @@ function Shell() {
           lastSync={data.lastSync}
           isOnline={isOnline}
           onBack={goHome}
-          onSynced={records =>
-            setData(d => ({...d, records, lastSync: new Date().toISOString()}))
-          }
+          onSynced={records => setData(d => ({...d, records, lastSync: new Date().toISOString()}))}
         />
       );
 
@@ -412,10 +586,13 @@ function Shell() {
           leaves={data.leaves}
           lastSync={data.lastSync}
           isOnline={isOnline}
+          onDemo={onDemo}
           navigate={async target => {
             if (target === 'signOut') {
               await clearSession();
               setSession(null);
+              setGate('checking');
+              setAuthScreen('signIn');
               return;
             }
             if (target === 'attendance') {

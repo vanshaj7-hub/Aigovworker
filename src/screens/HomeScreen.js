@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, elevation, r, t} from '../theme';
 import {useLang} from '../i18n';
@@ -12,6 +12,7 @@ import {
   LegendDot,
   ProgressBar,
   Screen,
+  SectionLabel,
   StatusPill,
 } from '../ui';
 import {
@@ -33,7 +34,16 @@ function ActionTile({icon, color, title, sub, onPress}) {
   );
 }
 
-export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate}) {
+function DemoRow({icon, label, onPress, danger}) {
+  return (
+    <Pressable onPress={onPress} android_ripple={{color: '#00000010'}} style={s.demoRow}>
+      <Icon name={icon} size={20} color={danger ? c.error : c.primaryDark} style={{marginRight: 12}} />
+      <Text style={[s.demoLabel, danger && {color: c.error}]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo}) {
   const {t: tr, lang} = useLang();
   const shift = currentShift();
   const dk = dateKey(new Date());
@@ -60,6 +70,7 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
   }, [workers, records, leaves, dk, shift.id]);
 
   const queued = records.filter(rec => !rec.synced).length;
+  const hasDemo = workers.some(w => w.demo) || records.some(rec => rec.demo);
   const state = shiftWindowState(shift);
   const shiftKey =
     state === 'open' ? 'shiftInProgress' : state === 'closed' ? 'shiftClosed' : 'shiftNotStarted';
@@ -162,6 +173,29 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
           )}
         </Pressable>
 
+        <View style={s.demoBox}>
+          <SectionLabel style={{paddingHorizontal: 0, paddingTop: 4}}>{tr('demoData')}</SectionLabel>
+          <Text style={[t.small, {marginBottom: 10}]}>{tr('demoDataSub')}</Text>
+          <DemoRow
+            icon="group-add"
+            label={tr('loadDemoWorkers')}
+            onPress={() => onDemo('workers')}
+          />
+          <DemoRow
+            icon="history"
+            label={tr('loadDemoHistory')}
+            onPress={() => onDemo('history')}
+          />
+          {hasDemo ? (
+            <DemoRow
+              icon="delete-outline"
+              label={tr('clearDemo')}
+              danger
+              onPress={() => onDemo('clear')}
+            />
+          ) : null}
+        </View>
+
         <Pressable onPress={() => navigate('signOut')} style={s.signOut}>
           <Text style={s.signOutText}>{tr('signOut')}</Text>
         </Pressable>
@@ -193,6 +227,17 @@ const s = StyleSheet.create({
   tileTitle: {fontSize: 16, fontWeight: '600', color: c.text, marginTop: 14},
   tileSub: {...t.small, marginTop: 3},
 
+  demoBox: {
+    marginTop: 16,
+    backgroundColor: c.surface,
+    borderRadius: r.card,
+    borderWidth: 1,
+    borderColor: c.outlineSoft,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  demoRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 13},
+  demoLabel: {fontSize: 14.5, color: c.primaryDark, fontWeight: '600'},
   signOut: {alignItems: 'center', paddingVertical: 22},
   signOutText: {color: c.primaryDark, fontSize: 14.5, fontWeight: '600'},
 });

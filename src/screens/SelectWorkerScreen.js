@@ -152,9 +152,14 @@ export default function SelectWorkerScreen({
               <Avatar name={worker.name} uri={worker.photoUri} size={44} />
               <View style={{flex: 1, marginLeft: 14}}>
                 <Text style={s.rowName}>{worker.name}</Text>
-                <Text style={t.small}>
-                  {worker.designation} · {worker.code}
-                </Text>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <Text style={t.small}>
+                    {worker.designation} · {worker.code}
+                  </Text>
+                  {worker.demo ? (
+                    <StatusPill label={tr('demoBadge')} tone="info" style={{marginLeft: 8, paddingVertical: 2}} />
+                  ) : null}
+                </View>
               </View>
               <StatusPill label={label} tone={tone} />
               <Icon
