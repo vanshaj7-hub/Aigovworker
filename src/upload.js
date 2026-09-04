@@ -1,13 +1,19 @@
-import {FIREBASE_BUCKET, STORAGE_PATHS, isUploadConfigured} from './config';
+import {FIREBASE_BUCKET, STORAGE_FOLDER, isUploadConfigured} from './config';
 
 /**
  * Uploads a local image to Firebase Storage and returns its public download URL,
- * which is what the attendance endpoints expect in their *_photo_url fields.
+ * which is what the backend endpoints expect in their *_photo_url fields.
  *
  * This talks to the Storage REST API directly rather than through the native
  * Firebase SDK. That keeps google-services.json and the Firebase gradle plugin
  * out of the build — nothing here can break the Android build if the project is
  * not configured yet — and it needs only the bucket name.
+ *
+ * Every object goes into the single STORAGE_FOLDER ("test-app") and is named
+ *     SupervisorID_WardID_workerID_datetime.<ext>
+ * so a file is identifiable from its name alone. The worker slot carries "self"
+ * for a supervisor's own profile photo and "new" for a worker being added who
+ * does not have an id yet.
  *
  * Storage rules must allow the write. For the test environment that means
  * something permissive; before production this should move behind Firebase Auth
@@ -31,18 +37,36 @@ const extensionOf = uri => {
   return /^(jpg|jpeg|png|webp)$/.test(ext) ? ext : 'jpg';
 };
 
-const contentTypeOf = ext => (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
+const contentTypeOf = ext =>
+  ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
 
-function objectPath(folder, uri) {
-  const ext = extensionOf(uri);
-  const stamp = Date.now().toString(36);
-  const rand = Math.floor(Math.random() * 1e6).toString(36);
-  return `${folder}/${stamp}_${rand}.${ext}`;
+/** Keeps an id usable inside a filename: letters, digits and single dashes. */
+const safe = v =>
+  String(v == null ? '' : v)
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'na';
+
+/** Compact, sortable local timestamp: 20260904-143512-880. */
+function timestamp(d = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return (
+    `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+    `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}` +
+    `-${p(d.getMilliseconds(), 3)}`
+  );
+}
+
+/** Builds  test-app/SupervisorID_WardID_workerID_datetime.ext */
+function objectPath({supervisorId, wardId, workerId}, ext) {
+  const name =
+    `${safe(supervisorId)}_${safe(wardId)}_${safe(workerId)}_${timestamp()}.${ext}`;
+  return `${STORAGE_FOLDER}/${name}`;
 }
 
 /** Turns the returned metadata into the long-lived public download URL. */
 function downloadUrl(bucket, path, meta) {
-  const token = meta && meta.downloadTokens ? String(meta.downloadTokens).split(',')[0] : null;
+  const token =
+    meta && meta.downloadTokens ? String(meta.downloadTokens).split(',')[0] : null;
   const encoded = encodeURIComponent(path);
   return token
     ? `${HOST}/${bucket}/o/${encoded}?alt=media&token=${token}`
@@ -51,10 +75,10 @@ function downloadUrl(bucket, path, meta) {
 
 /**
  * @param localUri  file:// or content:// URI on the device
- * @param folder    one of STORAGE_PATHS
+ * @param ids       {supervisorId, wardId, workerId} — drives the object name
  * @returns the download URL
  */
-export async function uploadImage(localUri, folder) {
+export async function uploadImage(localUri, ids) {
   if (!isUploadConfigured()) {
     throw new UploadError('UPLOAD_NOT_CONFIGURED');
   }
@@ -62,8 +86,8 @@ export async function uploadImage(localUri, folder) {
     throw new UploadError('NO_FILE');
   }
 
-  const path = objectPath(folder, localUri);
   const ext = extensionOf(localUri);
+  const path = objectPath(ids || {}, ext);
 
   // React Native can read a local file straight into a Blob.
   let blob;
@@ -104,9 +128,17 @@ export async function uploadImage(localUri, folder) {
   return downloadUrl(FIREBASE_BUCKET, path, meta);
 }
 
-export const uploadProfilePhoto = uri => uploadImage(uri, STORAGE_PATHS.profile);
-export const uploadWorkerReference = uri => uploadImage(uri, STORAGE_PATHS.workerReference);
-export const uploadAttendancePhoto = uri => uploadImage(uri, STORAGE_PATHS.attendance);
+/** Supervisor's own profile photo — no worker, so the worker slot is "self". */
+export const uploadProfilePhoto = (uri, {supervisorId, wardId}) =>
+  uploadImage(uri, {supervisorId, wardId, workerId: 'self'});
+
+/** A worker's reference face. Before the backend assigns an id the slot is "new". */
+export const uploadWorkerReference = (uri, {supervisorId, wardId, workerId}) =>
+  uploadImage(uri, {supervisorId, wardId, workerId: workerId || 'new'});
+
+/** A face captured while marking attendance for a known worker. */
+export const uploadAttendancePhoto = (uri, {supervisorId, wardId, workerId}) =>
+  uploadImage(uri, {supervisorId, wardId, workerId});
 
 /** Human-readable reason, for showing in the interface. */
 export function uploadErrorMessage(err, tr) {

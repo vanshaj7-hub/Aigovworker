@@ -165,12 +165,15 @@ function Shell() {
     }
   }, [session]);
 
+  // Load the real ward as soon as we are signed in — before the profile gate —
+  // so the profile screen shows the correct ward and any photo uploaded from it
+  // is named with the real WardID rather than the local placeholder.
   useEffect(() => {
-    if (session && canProceed && USE_BACKEND && !workspaceLoaded) {
+    if (session && USE_BACKEND && !workspaceLoaded) {
       loadBackendWorkspace();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, canProceed, workspaceLoaded]);
+  }, [session, workspaceLoaded]);
 
   useEffect(() => {
     if (session && canProceed && workspaceLoaded && gate === 'checking') {
@@ -245,6 +248,28 @@ function Shell() {
       setData(d => ({...d, records}));
       setResult(record);
       setScreen('verified');
+      // Best-effort mirror: upload the captured face and POST mark-attendance.
+      // Only real backend workers have a server worker_id to mark against.
+      if (USE_BACKEND && worker.fromBackend) {
+        svc
+          .submitAttendance({
+            supervisorId: session.supervisorId,
+            wardId: data.ward && (data.ward.wardId || data.ward.number),
+            workerId: worker.workerId != null ? worker.workerId : worker.id,
+            photoUri: stored,
+            shiftId,
+            faceMatchScore: score,
+            lat: fix ? fix.lat : null,
+            lng: fix ? fix.lng : null,
+            distanceFromWard: f && f.distance != null ? f.distance : null,
+            inside: true,
+          })
+          .then(r => {
+            if (r && !r.ok && !r.skipped) {
+              console.warn('mark-attendance sync failed:', r.message);
+            }
+          });
+      }
       if (isOnline) {
         flushQueue(true).then(res =>
           alive.current &&
@@ -440,6 +465,21 @@ function Shell() {
         onDone={profile => {
           setData(d => ({...d, profile}));
           setGate('checking');
+          // Best-effort mirror: upload the photo to Firebase and POST the profile.
+          svc
+            .submitProfile({
+              supervisorId: session.supervisorId,
+              wardId: data.ward && (data.ward.wardId || data.ward.number),
+              email: session.email,
+              fullName: profile.name,
+              phone: profile.mobile,
+              photoUri: profile.photoUri,
+            })
+            .then(r => {
+              if (r && !r.ok && !r.skipped) {
+                console.warn('profile sync failed:', r.message);
+              }
+            });
         }}
       />
     );
@@ -574,6 +614,25 @@ function Shell() {
           openCamera={() => requestPhoto(tr('referencePhotograph'))}
           onSaved={(workers, worker) => {
             setData(d => ({...d, workers}));
+            // Best-effort mirror: upload the reference face and POST the worker.
+            svc
+              .submitWorker({
+                supervisorId: session.supervisorId,
+                wardId: data.ward && (data.ward.wardId || data.ward.number),
+                fullName: worker.name,
+                relationName: worker.fatherName || '',
+                relation: 'Father',
+                phone: worker.mobile || '',
+                gender: null,
+                designation: worker.designation,
+                dateOfBirth: null,
+                photoUri: worker.photoUri,
+              })
+              .then(r => {
+                if (r && !r.ok && !r.skipped) {
+                  console.warn('add-worker sync failed:', r.message);
+                }
+              });
             Alert.alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
             goHome();
           }}
