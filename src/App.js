@@ -65,6 +65,7 @@ function Shell() {
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
   const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
   const [profileSkipped, setProfileSkipped] = useState(false);
+  const [locationBypassed, setLocationBypassed] = useState(false);
   const [backendCounts, setBackendCounts] = useState(null);
   const alive = useRef(true);
 
@@ -290,7 +291,7 @@ function Shell() {
       // 1. Location before anything else.
       const fix = (await getLocation({timeout: 8000})) || position;
       const f = evaluateFence(fix, data.ward);
-      if (f.state === 'outside') {
+      if (!locationBypassed && f.state === 'outside') {
         setPosition(fix || position);
         setBreach({reason: 'outside'});
         setScreen('breach');
@@ -335,7 +336,7 @@ function Shell() {
       // 4. Location again — the device may have moved while the face was processed.
       const afterFix = (await getLocation({timeout: 8000})) || fix;
       const afterFence = evaluateFence(afterFix, data.ward);
-      if (afterFence.state === 'outside') {
+      if (!locationBypassed && afterFence.state === 'outside') {
         setPosition(afterFix);
         setBreach({reason: 'moved'});
         setScreen('breach');
@@ -351,7 +352,7 @@ function Shell() {
         f: afterFence,
       });
     },
-    [active, position, data.ward, tr, writeRecord],
+    [active, position, data.ward, tr, writeRecord, locationBypassed],
   );
 
   /* ------------------------------------------------------------ demo data */
@@ -485,7 +486,7 @@ function Shell() {
     );
   }
 
-  if (gate !== 'ok') {
+  if (gate !== 'ok' && !locationBypassed) {
     return (
       <LocationGateScreen
         ward={data.ward}
@@ -506,10 +507,12 @@ function Shell() {
               }
             : null
         }
+        onSkip={() => setLocationBypassed(true)}
         onSignOut={async () => {
           await clearSession();
           setSession(null);
           setGate('checking');
+          setLocationBypassed(false);
         }}
       />
     );
@@ -533,7 +536,7 @@ function Shell() {
           setShiftId={setShiftId}
           onBack={goHome}
           onPick={w => {
-            if (fence.state === 'outside') {
+            if (!locationBypassed && fence.state === 'outside') {
               setBreach({reason: 'outside'});
               setScreen('breach');
               return;
@@ -695,6 +698,7 @@ function Shell() {
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
               setProfileSkipped(false);
+              setLocationBypassed(false);
               return;
             }
             if (target === 'attendance') {

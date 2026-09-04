@@ -2,14 +2,14 @@ import React from 'react';
 import {ActivityIndicator, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
-import {Banner, BottomBar, FilledButton, Icon, OutlinedButton, Screen} from '../ui';
+import {Banner, BottomBar, FilledButton, Icon, OutlinedButton, Screen, TextButton} from '../ui';
 import {formatDistance} from '../domain/geo';
 
 /**
  * Runs once after sign-in. The supervisor cannot use the app until the device
  * is inside the ward the IT Administrator assigned to them.
  */
-export default function LocationGateScreen({ward, fence, checking, onRetry, onRecentre, onSignOut}) {
+export default function LocationGateScreen({ward, fence, checking, onRetry, onRecentre, onSkip, onSignOut}) {
   const {t: tr} = useLang();
 
   if (checking) {
@@ -72,6 +72,12 @@ export default function LocationGateScreen({ward, fence, checking, onRetry, onRe
               style={{marginTop: 10}}
             />
             <Text style={s.note}>{tr('recentreNote')}</Text>
+          </>
+        ) : null}
+        {onSkip ? (
+          <>
+            <TextButton label={tr('skipLocation')} onPress={onSkip} style={{marginTop: 12}} />
+            <Text style={s.note}>{tr('skipLocationNote')}</Text>
           </>
         ) : null}
         <Text style={s.signOut} onPress={onSignOut}>
