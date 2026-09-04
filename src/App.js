@@ -64,6 +64,7 @@ function Shell() {
   const [gate, setGate] = useState('checking'); // checking | ok | blocked
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
   const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
+  const [profileSkipped, setProfileSkipped] = useState(false);
   const [backendCounts, setBackendCounts] = useState(null);
   const alive = useRef(true);
 
@@ -141,6 +142,8 @@ function Shell() {
   }, [data.ward, position]);
 
   const profileReady = isProfileComplete(data.profile);
+  // The supervisor may skip an incomplete profile for this session.
+  const canProceed = profileReady || profileSkipped;
 
   // With the backend on, pull the real ward (and its geo-fence), the day's
   // counts and the worker roll before the location gate runs.
@@ -163,18 +166,18 @@ function Shell() {
   }, [session]);
 
   useEffect(() => {
-    if (session && profileReady && USE_BACKEND && !workspaceLoaded) {
+    if (session && canProceed && USE_BACKEND && !workspaceLoaded) {
       loadBackendWorkspace();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, profileReady, workspaceLoaded]);
+  }, [session, canProceed, workspaceLoaded]);
 
   useEffect(() => {
-    if (session && profileReady && workspaceLoaded && gate === 'checking') {
+    if (session && canProceed && workspaceLoaded && gate === 'checking') {
       runGate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, profileReady, workspaceLoaded]);
+  }, [session, canProceed, workspaceLoaded]);
 
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
@@ -424,14 +427,16 @@ function Shell() {
     );
   }
 
-  // Supervisor details must be complete — re-checked on every sign-in.
-  if (!profileReady) {
+  // Profile is re-checked on every sign-in. It can be skipped for now, but the
+  // prompt returns on the next app open because profileSkipped is not persisted.
+  if (!profileReady && !profileSkipped) {
     return (
       <ProfileSetupScreen
         session={session}
         ward={data.ward}
         profile={data.profile}
         openCamera={() => requestPhoto(tr('addYourPhoto'))}
+        onSkip={() => setProfileSkipped(true)}
         onDone={profile => {
           setData(d => ({...d, profile}));
           setGate('checking');
@@ -612,7 +617,7 @@ function Shell() {
     default:
       return (
         <HomeScreen
-          profile={data.profile}
+          profile={data.profile || {name: session.fullName || '', photoUri: null}}
           ward={data.ward}
           workers={data.workers}
           records={data.records}
@@ -630,6 +635,7 @@ function Shell() {
               setShowPasswordChange(false);
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
+              setProfileSkipped(false);
               return;
             }
             if (target === 'attendance') {

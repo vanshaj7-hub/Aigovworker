@@ -234,6 +234,9 @@ export const STRINGS = {
     uploadNetwork: 'The photo could not be uploaded. Check the connection and try again.',
     uploadReadFailed: 'That photo could not be read from the device.',
     uploadFailed: 'The photo could not be uploaded.',
+    // skippable profile
+    skipForNow: 'Skip for now',
+    skipProfileNote: 'You can start using the app without a photo. You will be asked to complete your profile each time you open the app until it is done.',
     // shared
     ok: 'OK',
     close: 'Close',
@@ -452,6 +455,8 @@ export const STRINGS = {
     uploadNetwork: 'फ़ोटो अपलोड नहीं हो सकी। कनेक्शन जाँचकर दोबारा प्रयास करें।',
     uploadReadFailed: 'यह फ़ोटो डिवाइस से पढ़ी नहीं जा सकी।',
     uploadFailed: 'फ़ोटो अपलोड नहीं हो सकी।',
+    skipForNow: 'अभी के लिए छोड़ें',
+    skipProfileNote: 'आप फ़ोटो के बिना भी ऐप का उपयोग शुरू कर सकते हैं। प्रोफ़ाइल पूरी होने तक, हर बार ऐप खोलने पर आपसे इसे पूरा करने को कहा जाएगा।',
     ok: 'ठीक है',
     close: 'बंद करें',
     designations: ['सफ़ाई कर्मी', 'सहायक', 'चालक', 'पर्यवेक्षक'],

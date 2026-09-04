@@ -11,12 +11,13 @@ import {
   Icon,
   Screen,
   StatusPill,
+  TextButton,
 } from '../ui';
 import {profileGaps, saveProfile} from '../storage';
 import {pickFromGallery} from '../device';
 import PhotoSourceSheet from '../PhotoSourceSheet';
 
-export default function ProfileSetupScreen({session, ward, profile, onDone, openCamera}) {
+export default function ProfileSetupScreen({session, ward, profile, onDone, openCamera, onSkip}) {
   const {t: tr} = useLang();
   const designations = tr('designations');
   const [name, setName] = useState(profile?.name || '');
@@ -138,6 +139,12 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
           busy={busy}
           disabled={gaps.length > 0}
         />
+        {onSkip ? (
+          <>
+            <TextButton label={tr('skipForNow')} onPress={onSkip} style={{marginTop: 4}} />
+            <Text style={s.skipNote}>{tr('skipProfileNote')}</Text>
+          </>
+        ) : null}
       </BottomBar>
 
       <PhotoSourceSheet
@@ -202,6 +209,7 @@ const s = StyleSheet.create({
   },
   wardName: {fontSize: 16, fontWeight: '600', color: c.text, marginTop: 2},
   note: {...t.bodyMuted, fontSize: 13, lineHeight: 19, marginTop: 14},
+  skipNote: {...t.small, textAlign: 'center', marginTop: 8, lineHeight: 16},
   modalBg: {flex: 1, backgroundColor: '#00000066', justifyContent: 'flex-end'},
   sheet: {backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20},
   sheetRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 15},
