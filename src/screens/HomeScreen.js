@@ -43,7 +43,7 @@ function DemoRow({icon, label, onPress, danger}) {
   );
 }
 
-export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword}) {
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword, counts: serverCounts}) {
   const {t: tr, lang} = useLang();
   const shift = currentShift();
   const dk = dateKey(new Date());
@@ -68,6 +68,17 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
     });
     return {present, leave, pending, absent, total: workers.length};
   }, [workers, records, leaves, dk, shift.id]);
+
+  // The backend returns authoritative counts; prefer them when present.
+  const view = serverCounts
+    ? {
+        present: serverCounts.present || 0,
+        pending: serverCounts.pending || 0,
+        leave: serverCounts.on_leave || 0,
+        absent: 0,
+        total: serverCounts.total_workers || workers.length,
+      }
+    : counts;
 
   const queued = records.filter(rec => !rec.synced).length;
   const hasDemo = workers.some(w => w.demo) || records.some(rec => rec.demo);
@@ -106,14 +117,14 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
             />
           </View>
           <View style={s.countRow}>
-            <Text style={s.bigCount}>{counts.present}</Text>
-            <Text style={s.countSub}>{tr('marked', {total: counts.total})}</Text>
+            <Text style={s.bigCount}>{view.present}</Text>
+            <Text style={s.countSub}>{tr('marked', {total: view.total})}</Text>
           </View>
-          <ProgressBar value={counts.present} total={counts.total} />
+          <ProgressBar value={view.present} total={view.total} />
           <View style={s.legendRow}>
-            <LegendDot color={c.success} label={tr('present')} value={counts.present} />
-            <LegendDot color={c.textDisabled} label={tr('pending')} value={counts.pending} />
-            <LegendDot color={c.warning} label={tr('onLeave')} value={counts.leave} />
+            <LegendDot color={c.success} label={tr('present')} value={view.present} />
+            <LegendDot color={c.textDisabled} label={tr('pending')} value={view.pending} />
+            <LegendDot color={c.warning} label={tr('onLeave')} value={view.leave} />
           </View>
         </Card>
 
@@ -123,10 +134,10 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
             color={c.primary}
             title={tr('markAttendance')}
             sub={
-              counts.total === 0
+              view.total === 0
                 ? tr('addWorkersFirst')
-                : counts.pending > 0
-                ? tr('workersLeft', {n: counts.pending})
+                : view.pending > 0
+                ? tr('workersLeft', {n: view.pending})
                 : tr('allMarked')
             }
             onPress={() => navigate('attendance')}

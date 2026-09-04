@@ -21,6 +21,8 @@ import {getLocation, requestPermissions, watchLocation} from './device';
 import {evaluateFence} from './domain/geo';
 import {currentShift, dateKey} from './domain/shifts';
 import {isDemoWorker} from './demo';
+import {USE_BACKEND} from './config';
+import * as svc from './session';
 import {MATCH_THRESHOLD, cosineSimilarity, extractFaceEmbedding, faceErrorMessage} from './face';
 
 import SignInScreen from './screens/SignInScreen';
@@ -61,6 +63,8 @@ function Shell() {
   const [breach, setBreach] = useState(null); // {reason: 'outside'|'moved'}
   const [gate, setGate] = useState('checking'); // checking | ok | blocked
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
+  const [backendCounts, setBackendCounts] = useState(null);
   const alive = useRef(true);
 
   useEffect(() => () => {
@@ -138,12 +142,39 @@ function Shell() {
 
   const profileReady = isProfileComplete(data.profile);
 
+  // With the backend on, pull the real ward (and its geo-fence), the day's
+  // counts and the worker roll before the location gate runs.
+  const loadBackendWorkspace = useCallback(async () => {
+    if (!USE_BACKEND || !session) {
+      return;
+    }
+    try {
+      const supId = session.supervisorId;
+      const ws = await svc.loadWorkspace(supId);
+      const workers = await svc.loadWorkers(supId, ws.shiftId);
+      setShiftId(ws.shiftId);
+      setBackendCounts(ws.counts);
+      setData(d => ({...d, ward: ws.ward, workers}));
+    } catch (err) {
+      // Keep whatever ward we have; the gate still runs against it.
+    } finally {
+      setWorkspaceLoaded(true);
+    }
+  }, [session]);
+
   useEffect(() => {
-    if (session && profileReady && gate === 'checking') {
+    if (session && profileReady && USE_BACKEND && !workspaceLoaded) {
+      loadBackendWorkspace();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, profileReady, workspaceLoaded]);
+
+  useEffect(() => {
+    if (session && profileReady && workspaceLoaded && gate === 'checking') {
       runGate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, profileReady]);
+  }, [session, profileReady, workspaceLoaded]);
 
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
@@ -589,6 +620,7 @@ function Shell() {
           lastSync={data.lastSync}
           isOnline={isOnline}
           onDemo={onDemo}
+          counts={backendCounts}
           onChangePassword={() => setShowPasswordChange(true)}
           navigate={async target => {
             if (target === 'signOut') {
@@ -596,6 +628,8 @@ function Shell() {
               setSession(null);
               setGate('checking');
               setShowPasswordChange(false);
+              setWorkspaceLoaded(!USE_BACKEND);
+              setBackendCounts(null);
               return;
             }
             if (target === 'attendance') {

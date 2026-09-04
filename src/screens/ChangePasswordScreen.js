@@ -13,7 +13,7 @@ import {
   StatusPill,
 } from '../ui';
 import {checkPassword} from '../domain/password';
-import {changePassword} from '../storage';
+import {changeAccountPassword} from '../session';
 
 /**
  * Reached two ways: automatically after signing in with the temporary password
@@ -46,11 +46,12 @@ export default function ChangePasswordScreen({email, forced, onDone, onSkip, onB
     }
     setBusy(true);
     try {
-      const res = await changePassword(email, current, pw);
+      const res = await changeAccountPassword(email, current, pw);
       if (!res.ok) {
         Alert.alert(
           tr('changePasswordTitle'),
-          res.reason === 'badOldPassword' ? tr('signInFailedBody') : tr('noAccountFound'),
+          // The backend supplies its own wording for a wrong old password.
+          res.message || (res.reason === 'badOldPassword' ? tr('signInFailedBody') : tr('noAccountFound')),
         );
         return;
       }

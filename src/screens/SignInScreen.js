@@ -3,7 +3,8 @@ import {Alert, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'r
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
-import {DEMO_CREDENTIALS, isEmail, signIn} from '../storage';
+import {DEMO_CREDENTIALS, isEmail} from '../storage';
+import {authenticate} from '../session';
 
 export default function SignInScreen({onSignedIn}) {
   const {t: tr} = useLang();
@@ -22,9 +23,11 @@ export default function SignInScreen({onSignedIn}) {
     }
     setBusy(true);
     try {
-      const res = await signIn(email, pw);
+      const res = await authenticate(email, pw);
       if (res.ok) {
         onSignedIn(res.session);
+      } else if (res.reason === 'network') {
+        Alert.alert(tr('signInFailed'), res.message || tr('uploadNetwork'));
       } else {
         Alert.alert(
           tr('signInFailed'),

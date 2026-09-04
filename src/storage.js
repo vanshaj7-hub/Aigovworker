@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {dateKey} from './domain/shifts';
+import {currentShift, dateKey} from './domain/shifts';
 import {digest} from './domain/password';
 import {buildDemoHistory, buildDemoWorkers} from './demo';
 
@@ -17,7 +17,7 @@ const K = {
 
 // Credentials are issued by the IT team; the app never creates accounts.
 // The seeded account below stands in for that until the backend is connected.
-export const DEMO_CREDENTIALS = {email: 'rahul@example.com', password: 'Nagar@2026'};
+export const DEMO_CREDENTIALS = {email: 'rahul@example.com', password: 'Password123'};
 
 const SEED_ACCOUNT = {
   email: DEMO_CREDENTIALS.email,
@@ -116,6 +116,17 @@ export async function dismissPasswordPrompt() {
     return null;
   }
   return write(K.SESSION, {...session, passwordPromptDone: true});
+}
+
+/** Store a session object as-is (used by the backend auth path). */
+export const saveSession = session => write(K.SESSION, session);
+
+/** Clear the "must reset" flag on the current session after a change. */
+export async function markPasswordChanged() {
+  const session = await read(K.SESSION, null);
+  if (session) {
+    await write(K.SESSION, {...session, mustResetPassword: false, passwordPromptDone: true});
+  }
 }
 
 export const getSession = () => read(K.SESSION, null);
@@ -308,5 +319,7 @@ export async function loadAll() {
   ]);
   return {profile, ward, workers, records, leaves, lastSync};
 }
+
+export const currentShiftId = () => currentShift().id;
 
 export {dateKey};

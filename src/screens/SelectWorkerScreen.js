@@ -35,10 +35,16 @@ export default function SelectWorkerScreen({
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return workers
-      .map(w => ({
-        worker: w,
-        ...resolveStatus({workerId: w.id, dk, shiftId, records, leaves}),
-      }))
+      .map(w => {
+        // Backend workers carry their own status; local ones are resolved from records.
+        const backendStatus = w.attendanceStatus
+          ? {status: w.attendanceStatus === 'on_leave' ? 'leave' : w.attendanceStatus}
+          : null;
+        return {
+          worker: w,
+          ...(backendStatus || resolveStatus({workerId: w.id, dk, shiftId, records, leaves})),
+        };
+      })
       .filter(
         row =>
           !q ||

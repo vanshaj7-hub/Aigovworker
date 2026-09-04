@@ -10,8 +10,8 @@ export const API_BASE = 'https://ats-backend-test-821100264159.asia-south1.run.a
  * Set AUTH_HEADER to the header name they use (for example 'Authorization' or
  * 'X-API-Key') and AUTH_VALUE to the value (for example 'Bearer <key>').
  */
-export const AUTH_HEADER = null;
-export const AUTH_VALUE = null;
+export const AUTH_HEADER = 'X-access-token';
+export const AUTH_VALUE = 'ats-secret-api-key';
 
 /**
  * Firebase Storage bucket, e.g. "my-project.appspot.com". Photos are uploaded
@@ -33,7 +33,7 @@ export const STORAGE_PATHS = {
  * it is being demonstrated today. Turn it on once AUTH_HEADER and
  * FIREBASE_BUCKET are filled in.
  */
-export const USE_BACKEND = false;
+export const USE_BACKEND = true;
 
 export const isBackendConfigured = () => !!(AUTH_HEADER && AUTH_VALUE);
 export const isUploadConfigured = () => !!FIREBASE_BUCKET;
