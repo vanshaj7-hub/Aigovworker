@@ -71,6 +71,8 @@ export const STRINGS = {
     outsideGeofence: 'Outside geo-fence',
     holdSteady: 'Hold steady and keep the worker’s face inside the oval.',
     cameraDenied: 'Camera permission is needed to mark attendance.',
+    captureFailed: 'Could not take the photo',
+    captureFailedBody: 'The camera could not capture a photo. Please try again.',
     checking: 'Checking…',
     // 06 verified
     identityVerified: 'Identity verified',
@@ -310,6 +312,8 @@ export const STRINGS = {
     outsideGeofence: 'जियो-फ़ेंस के बाहर',
     holdSteady: 'स्थिर रखें और कर्मचारी का चेहरा अंडाकार के भीतर रखें।',
     cameraDenied: 'उपस्थिति दर्ज करने के लिए कैमरा अनुमति आवश्यक है।',
+    captureFailed: 'फ़ोटो नहीं ली जा सकी',
+    captureFailedBody: 'कैमरा फ़ोटो कैप्चर नहीं कर सका। कृपया पुनः प्रयास करें।',
     checking: 'जाँच हो रही है…',
     identityVerified: 'पहचान सत्यापित',
     faceMatched: 'चेहरा पंजीकरण फ़ोटो से मेल खाया',

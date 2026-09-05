@@ -14,8 +14,6 @@ import {
   TextButton,
 } from '../ui';
 import {profileGaps, saveProfile} from '../storage';
-import {pickFromGallery} from '../device';
-import PhotoSourceSheet from '../PhotoSourceSheet';
 
 export default function ProfileSetupScreen({session, ward, profile, onDone, openCamera, onSkip}) {
   const {t: tr} = useLang();
@@ -24,7 +22,6 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
   const [mobile, setMobile] = useState(profile?.mobile || '');
   const [designation, setDesignation] = useState(profile?.designation || designations[3]);
   const [photo, setPhoto] = useState(profile?.photoUri || null);
-  const [sourceOpen, setSourceOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -95,7 +92,7 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
           />
         ) : null}
 
-        <Pressable onPress={() => setSourceOpen(true)} style={s.avatarWrap}>
+        <Pressable onPress={() => setPhotoFrom(openCamera)} style={s.avatarWrap}>
           {photo ? (
             <Image source={{uri: photo}} style={s.avatarImg} />
           ) : (
@@ -146,14 +143,6 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
           </>
         ) : null}
       </BottomBar>
-
-      <PhotoSourceSheet
-        visible={sourceOpen}
-        title={tr('addYourPhoto')}
-        onClose={() => setSourceOpen(false)}
-        onCamera={() => setPhotoFrom(openCamera)}
-        onGallery={() => setPhotoFrom(pickFromGallery)}
-      />
 
       <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
         <Pressable style={s.modalBg} onPress={() => setPickerOpen(false)}>

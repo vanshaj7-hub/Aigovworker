@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Alert, BackHandler, StatusBar, View} from 'react-native';
+import {ActivityIndicator, Alert, BackHandler, Modal, StatusBar, View} from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import RNFS from 'react-native-fs';
 import {c} from './theme';
@@ -399,25 +399,11 @@ function Shell() {
     );
   }
 
-  // The shared camera sits above every gate so the profile screen can use it.
-  if (photoRequest) {
-    const finish = uri => {
-      const {resolve} = photoRequest;
-      setPhotoRequest(null);
-      resolve(uri);
-    };
-    return (
-      <CaptureScreen
-        worker={{name: photoRequest.title}}
-        ward={data.ward}
-        shiftId={shiftId}
-        fence={fence}
-        onCaptured={async uri => finish(uri)}
-        onCancel={() => finish(null)}
-      />
-    );
-  }
-
+  // The base screen. The shared camera renders as an overlay on top of this
+  // (see the return below) instead of replacing it, so the screen that asked
+  // for a photo — profile setup or worker onboarding — stays mounted, receives
+  // the captured photo, and keeps anything already typed into its form.
+  const base = (() => {
   if (!session) {
     return (
       <SignInScreen
@@ -709,6 +695,40 @@ function Shell() {
         />
       );
   }
+  })();
+
+  return (
+    <>
+      {base}
+      {photoRequest ? (
+        <Modal
+          visible
+          animationType="slide"
+          onRequestClose={() => {
+            const {resolve} = photoRequest;
+            setPhotoRequest(null);
+            resolve(null);
+          }}>
+          <CaptureScreen
+            worker={{name: photoRequest.title}}
+            ward={data.ward}
+            shiftId={shiftId}
+            fence={fence}
+            onCaptured={async uri => {
+              const {resolve} = photoRequest;
+              setPhotoRequest(null);
+              resolve(uri);
+            }}
+            onCancel={() => {
+              const {resolve} = photoRequest;
+              setPhotoRequest(null);
+              resolve(null);
+            }}
+          />
+        </Modal>
+      ) : null}
+    </>
+  );
 }
 
 export default function App() {

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Pressable,
   StatusBar,
@@ -16,7 +17,6 @@ import {c} from '../theme';
 import {useLang} from '../i18n';
 import {Icon} from '../ui';
 import {shiftLabel} from '../domain/shifts';
-import {pickFromGallery} from '../device';
 
 const {width: SW, height: SH} = Dimensions.get('window');
 const OVAL = {cx: SW / 2, cy: SH * 0.40, rx: SW * 0.34, ry: SW * 0.44};
@@ -75,33 +75,39 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
     return () => clearInterval(timer);
   }, [busy]);
 
-  const capture = useCallback(
-    async fromGallery => {
-      if (busy) {
+  // Camera only. takePhoto gives a full-resolution frame; if the device or
+  // emulator cannot service it we fall back to a preview snapshot (the same
+  // call the face indicator uses, so it is known to work here) so a tap always
+  // produces a photo rather than silently doing nothing.
+  const capture = useCallback(async () => {
+    if (busy || !cam.current) {
+      return;
+    }
+    setBusy(true);
+    try {
+      let uri = null;
+      try {
+        const photo = await cam.current.takePhoto({flash: torch ? 'on' : 'off'});
+        uri = photo && photo.path ? uriOf(photo.path) : null;
+      } catch (err) {
+        try {
+          const snap = await cam.current.takeSnapshot({quality: 90});
+          uri = snap && snap.path ? uriOf(snap.path) : null;
+        } catch (err2) {
+          uri = null;
+        }
+      }
+      if (!uri) {
+        Alert.alert(tr('captureFailed'), tr('captureFailedBody'));
         return;
       }
-      setBusy(true);
-      try {
-        let uri = null;
-        if (fromGallery) {
-          uri = await pickFromGallery();
-          if (!uri) {
-            setBusy(false);
-            return;
-          }
-        } else {
-          const photo = await cam.current.takePhoto({flash: torch ? 'on' : 'off'});
-          uri = uriOf(photo.path);
-        }
-        await onCaptured(uri);
-      } finally {
-        if (alive.current) {
-          setBusy(false);
-        }
+      await onCaptured(uri);
+    } finally {
+      if (alive.current) {
+        setBusy(false);
       }
-    },
-    [busy, torch, onCaptured],
-  );
+    }
+  }, [busy, torch, onCaptured, tr]);
 
   const inFence = fence.state !== 'outside';
 
@@ -182,10 +188,8 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
       </View>
 
       <View style={s.bottomBar}>
-        <Pressable onPress={() => capture(true)} hitSlop={14} disabled={busy}>
-          <Icon name="photo-library" size={27} color="#fff" />
-        </Pressable>
-        <Pressable onPress={() => capture(false)} disabled={busy || !device} style={s.shutterRing}>
+        <View style={{width: 27}} />
+        <Pressable onPress={() => capture()} disabled={busy || !device} style={s.shutterRing}>
           <View style={s.shutter}>
             {busy ? <ActivityIndicator color={c.primary} /> : null}
           </View>
