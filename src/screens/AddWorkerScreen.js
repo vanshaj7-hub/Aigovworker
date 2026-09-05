@@ -6,17 +6,55 @@ import {AppBar, BottomBar, Divider, Field, FilledButton, Icon, Screen, TextButto
 import {addWorker} from '../storage';
 import {extractFaceEmbedding, faceErrorMessage} from '../face';
 
+// Canonical values sent to the backend, regardless of the interface language.
+const GENDER_KEYS = ['Male', 'Female', 'Other'];
+
+/** "DD/MM/YYYY" → "YYYY-MM-DD" if it is a real, sensible date, else null. */
+function dobToIso(s) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s.trim());
+  if (!m) {
+    return null;
+  }
+  const day = +m[1];
+  const mon = +m[2];
+  const year = +m[3];
+  const d = new Date(year, mon - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== mon - 1 || d.getDate() !== day) {
+    return null; // e.g. 31/02/2000
+  }
+  if (year < 1900 || d > new Date()) {
+    return null; // absurd year or a date in the future
+  }
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
 export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
   const {t: tr} = useLang();
   const designations = tr('designations');
   const [name, setName] = useState('');
   const [father, setFather] = useState('');
   const [mobile, setMobile] = useState('');
+  const [gender, setGender] = useState('Male');
+  const [dob, setDob] = useState(''); // shown as DD/MM/YYYY
   const [designation, setDesignation] = useState(designations[0]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [picker, setPicker] = useState(null); // null | 'gender' | 'designation'
   const [photo, setPhoto] = useState(null);
   const [embedding, setEmbedding] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  const genderLabel = key => tr('gender_' + key.toLowerCase());
+
+  // Auto-insert the slashes as the supervisor types the date of birth.
+  const onDobChange = v => {
+    const digits = v.replace(/\D/g, '').slice(0, 8);
+    let out = digits;
+    if (digits.length > 4) {
+      out = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    } else if (digits.length > 2) {
+      out = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    }
+    setDob(out);
+  };
 
   const captureReference = async getUri => {
     const uri = await getUri();
@@ -40,12 +78,20 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
       Alert.alert(tr('addWorker'), tr('needNameAndPhoto'));
       return;
     }
+    // The backend requires both of these, so collect them before saving.
+    const iso = dobToIso(dob);
+    if (!iso) {
+      Alert.alert(tr('addWorker'), tr('dobInvalid'));
+      return;
+    }
     setBusy(true);
     try {
       const {workers, worker} = await addWorker({
         name: name.trim(),
         fatherName: father.trim(),
         mobile: mobile.trim(),
+        gender,
+        dateOfBirth: iso,
         designation,
         photoUri: photo,
         embedding,
@@ -54,6 +100,17 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const options = picker === 'gender' ? GENDER_KEYS : designations;
+  const selected = picker === 'gender' ? gender : designation;
+  const choose = value => {
+    if (picker === 'gender') {
+      setGender(value);
+    } else {
+      setDesignation(value);
+    }
+    setPicker(null);
   };
 
   return (
@@ -85,9 +142,23 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
           keyboardType="phone-pad"
         />
         <Field
+          label={tr('gender')}
+          value={genderLabel(gender)}
+          onPress={() => setPicker('gender')}
+          right={<Icon name="expand-more" size={22} />}
+        />
+        <Field
+          label={tr('dateOfBirth')}
+          value={dob}
+          onChangeText={onDobChange}
+          placeholder={tr('dobHint')}
+          icon="cake"
+          keyboardType="number-pad"
+        />
+        <Field
           label={tr('designation')}
           value={designation}
-          onPress={() => setPickerOpen(true)}
+          onPress={() => setPicker('designation')}
           right={<Icon name="expand-more" size={22} />}
         />
 
@@ -104,20 +175,18 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
         <FilledButton label={tr('saveWorker')} onPress={save} busy={busy} style={{minWidth: 160}} />
       </BottomBar>
 
-      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
-        <Pressable style={s.modalBg} onPress={() => setPickerOpen(false)}>
+      <Modal visible={!!picker} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
+        <Pressable style={s.modalBg} onPress={() => setPicker(null)}>
           <View style={s.sheet}>
-            <Text style={[t.label, {marginBottom: 8}]}>{tr('designation')}</Text>
-            {designations.map(d => (
-              <Pressable
-                key={d}
-                onPress={() => {
-                  setDesignation(d);
-                  setPickerOpen(false);
-                }}
-                style={s.sheetRow}>
-                <Text style={[t.body, {flex: 1, fontSize: 16}]}>{d}</Text>
-                {designation === d ? <Icon name="check" size={20} color={c.primary} /> : null}
+            <Text style={[t.label, {marginBottom: 8}]}>
+              {picker === 'gender' ? tr('gender') : tr('designation')}
+            </Text>
+            {options.map(opt => (
+              <Pressable key={opt} onPress={() => choose(opt)} style={s.sheetRow}>
+                <Text style={[t.body, {flex: 1, fontSize: 16}]}>
+                  {picker === 'gender' ? genderLabel(opt) : opt}
+                </Text>
+                {selected === opt ? <Icon name="check" size={20} color={c.primary} /> : null}
               </Pressable>
             ))}
           </View>

@@ -612,9 +612,9 @@ function Shell() {
                 relationName: worker.fatherName || '',
                 relation: 'Father',
                 phone: worker.mobile || '',
-                gender: null,
+                gender: worker.gender || 'Male',
                 designation: worker.designation,
-                dateOfBirth: null,
+                dateOfBirth: worker.dateOfBirth || null,
                 photoUri: worker.photoUri,
               })
               .then(r => {

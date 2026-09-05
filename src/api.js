@@ -126,8 +126,9 @@ export const markAttendance = ({
   post('/mark-attendance', {
     worker_id: workerId,
     shift_id: shiftId,
-    // The backend example uses a 0-100 percentage.
-    face_match_score: faceMatchScore == null ? null : Math.round(faceMatchScore * 100) / 100,
+    // faceMatchScore arrives as a 0-1 cosine similarity; the backend records a
+    // 0-100 percentage, so scale it up (e.g. 0.95 -> 95).
+    face_match_score: faceMatchScore == null ? null : Math.round(faceMatchScore * 10000) / 100,
     captured_photo_url: capturedPhotoUrl || null,
     geofencing_data: {
       geo_lat: lat,
