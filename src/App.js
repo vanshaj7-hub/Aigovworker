@@ -9,6 +9,8 @@ import {
   clearDemoData,
   flushQueue,
   getSession,
+  getLocationChecked,
+  setLocationChecked,
   dismissPasswordPrompt,
   isProfileComplete,
   loadAll,
@@ -65,8 +67,13 @@ function Shell() {
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
   const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
   const [profileSkipped, setProfileSkipped] = useState(false);
-  const [locationBypassed, setLocationBypassed] = useState(false);
+  // The start-of-day location gate runs only once (after the profile is first
+  // completed); this remembers that it has, so it is not shown on every launch.
+  const [locationCheckedOnce, setLocationCheckedOnce] = useState(false);
   const [backendCounts, setBackendCounts] = useState(null);
+  // Reference face embeddings, built on demand from each worker's photo URL and
+  // cached so a worker's reference is downloaded and encoded at most once.
+  const refCache = useRef({});
   const alive = useRef(true);
 
   useEffect(() => () => {
@@ -79,8 +86,10 @@ function Shell() {
       await requestPermissions();
       const s = await getSession();
       const all = await loadAll();
+      const locChecked = await getLocationChecked();
       setSession(s);
       setData(all);
+      setLocationCheckedOnce(locChecked);
       setBooted(true);
     })();
   }, []);
@@ -138,11 +147,23 @@ function Shell() {
       setData(d => ({...d, ward}));
     }
     const f = evaluateFence(fix, ward);
-    // Anything other than a confirmed "inside" keeps the app locked.
-    setGate(f.state === 'inside' ? 'ok' : 'blocked');
+    // Anything other than a confirmed "inside" keeps the app locked. Once it
+    // passes it is remembered, so this start-of-day check runs only once.
+    if (f.state === 'inside') {
+      await setLocationChecked();
+      if (alive.current) {
+        setLocationCheckedOnce(true);
+      }
+      setGate('ok');
+    } else {
+      setGate('blocked');
+    }
   }, [data.ward, position]);
 
-  const profileReady = isProfileComplete(data.profile);
+  // The backend is the source of truth for whether the profile is complete, so
+  // a returning supervisor whose profile is already done is never re-prompted.
+  const profileReady =
+    (session && session.profileCompleted) || isProfileComplete(data.profile);
   // The supervisor may skip an incomplete profile for this session.
   const canProceed = profileReady || profileSkipped;
 
@@ -177,11 +198,17 @@ function Shell() {
   }, [session, workspaceLoaded]);
 
   useEffect(() => {
-    if (session && canProceed && workspaceLoaded && gate === 'checking') {
+    if (
+      session &&
+      canProceed &&
+      workspaceLoaded &&
+      !locationCheckedOnce &&
+      gate === 'checking'
+    ) {
       runGate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, canProceed, workspaceLoaded]);
+  }, [session, canProceed, workspaceLoaded, locationCheckedOnce]);
 
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
@@ -214,6 +241,34 @@ function Shell() {
     title => new Promise(resolve => setPhotoRequest({title, resolve})),
     [],
   );
+
+  // Builds (and caches) a worker's reference face embedding from their stored
+  // photo URL, so the live capture can be matched against it. Returns null when
+  // the worker has no reference photo on file, or none with a detectable face.
+  const buildReferenceEmbedding = useCallback(async worker => {
+    if (worker.embedding && worker.embedding.length) {
+      return worker.embedding;
+    }
+    const key = worker.workerId != null ? worker.workerId : worker.id;
+    if (refCache.current[key]) {
+      return refCache.current[key];
+    }
+    if (!worker.referenceUrl) {
+      return null;
+    }
+    try {
+      const dest = `${RNFS.CachesDirectoryPath}/ref_${key}.jpg`;
+      const dl = await RNFS.downloadFile({fromUrl: worker.referenceUrl, toFile: dest}).promise;
+      if (!dl || dl.statusCode !== 200) {
+        return null;
+      }
+      const {embedding} = await extractFaceEmbedding(`file://${dest}`);
+      refCache.current[key] = embedding;
+      return embedding;
+    } catch (e) {
+      return null; // no reference, or no detectable face in it
+    }
+  }, []);
 
   /* ----------------------------------------------------- attendance capture */
 
@@ -288,10 +343,11 @@ function Shell() {
         return;
       }
 
-      // 1. Location before anything else.
+      // 1. Location before anything else. Strict: attendance is blocked unless
+      // the device is confirmed inside the ward (outside, or no fix, both stop).
       const fix = (await getLocation({timeout: 8000})) || position;
       const f = evaluateFence(fix, data.ward);
-      if (!locationBypassed && f.state === 'outside') {
+      if (f.state !== 'inside') {
         setPosition(fix || position);
         setBreach({reason: 'outside'});
         setScreen('breach');
@@ -327,16 +383,27 @@ function Shell() {
         );
         return;
       }
-      const score = cosineSimilarity(embedding, worker.embedding || []);
-      if (score < MATCH_THRESHOLD) {
-        Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
-        return;
+      // Match against the worker's reference face when one is on file. With no
+      // reference photo, attendance is still recorded but marked unverified
+      // rather than blocked (older records may predate reference photos).
+      const reference = await buildReferenceEmbedding(worker);
+      let score = null;
+      let verified = false;
+      if (reference) {
+        const sim = cosineSimilarity(embedding, reference);
+        if (sim < MATCH_THRESHOLD) {
+          Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
+          return;
+        }
+        score = Math.round(sim * 100) / 100;
+        verified = true;
       }
 
-      // 4. Location again — the device may have moved while the face was processed.
+      // 4. Location again — strict: the device may have moved while the face was
+      // processed, so re-confirm it is still inside the ward.
       const afterFix = (await getLocation({timeout: 8000})) || fix;
       const afterFence = evaluateFence(afterFix, data.ward);
-      if (!locationBypassed && afterFence.state === 'outside') {
+      if (afterFence.state !== 'inside') {
         setPosition(afterFix);
         setBreach({reason: 'moved'});
         setScreen('breach');
@@ -346,13 +413,13 @@ function Shell() {
       await writeRecord({
         worker,
         faceUri,
-        score: Math.round(score * 100) / 100,
-        verified: true,
+        score,
+        verified,
         fix: afterFix,
         f: afterFence,
       });
     },
-    [active, position, data.ward, tr, writeRecord, locationBypassed],
+    [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding],
   );
 
   /* ------------------------------------------------------------ demo data */
@@ -472,7 +539,7 @@ function Shell() {
     );
   }
 
-  if (gate !== 'ok' && !locationBypassed) {
+  if (!locationCheckedOnce && gate !== 'ok') {
     return (
       <LocationGateScreen
         ward={data.ward}
@@ -493,12 +560,17 @@ function Shell() {
               }
             : null
         }
-        onSkip={() => setLocationBypassed(true)}
+        onSkip={async () => {
+          // Skipping the one-time start-of-day check still counts as done, so it
+          // is not shown again. Attendance marking enforces the fence regardless.
+          await setLocationChecked();
+          setLocationCheckedOnce(true);
+          setGate('ok');
+        }}
         onSignOut={async () => {
           await clearSession();
           setSession(null);
           setGate('checking');
-          setLocationBypassed(false);
         }}
       />
     );
@@ -522,7 +594,8 @@ function Shell() {
           setShiftId={setShiftId}
           onBack={goHome}
           onPick={w => {
-            if (!locationBypassed && fence.state === 'outside') {
+            // Strict: cannot start marking unless confirmed inside the ward.
+            if (fence.state !== 'inside') {
               setBreach({reason: 'outside'});
               setScreen('breach');
               return;
@@ -684,7 +757,6 @@ function Shell() {
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
               setProfileSkipped(false);
-              setLocationBypassed(false);
               return;
             }
             if (target === 'attendance') {

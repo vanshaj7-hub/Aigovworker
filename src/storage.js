@@ -13,6 +13,7 @@ const K = {
   LEAVES: '@leaves',
   SYNC: '@lastSync',
   ISSUES: '@boundaryIssues',
+  LOCATION_CHECKED: '@locationChecked',
 };
 
 // Credentials are issued by the IT team; the app never creates accounts.
@@ -131,6 +132,12 @@ export async function markPasswordChanged() {
 
 export const getSession = () => read(K.SESSION, null);
 export const signOut = () => AsyncStorage.removeItem(K.SESSION);
+
+// The start-of-day location check runs once, right after the profile is first
+// completed, and is remembered thereafter so the app does not re-gate on every
+// launch. (Attendance marking still enforces the geo-fence every time.)
+export const getLocationChecked = () => read(K.LOCATION_CHECKED, false);
+export const setLocationChecked = () => write(K.LOCATION_CHECKED, true);
 
 /* ---------------------------------------------------------------- profile */
 

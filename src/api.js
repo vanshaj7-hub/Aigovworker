@@ -127,8 +127,9 @@ export const markAttendance = ({
     worker_id: workerId,
     shift_id: shiftId,
     // faceMatchScore arrives as a 0-1 cosine similarity; the backend records a
-    // 0-100 percentage, so scale it up (e.g. 0.95 -> 95).
-    face_match_score: faceMatchScore == null ? null : Math.round(faceMatchScore * 10000) / 100,
+    // 0-100 percentage (and rejects null), so scale it up (0.95 -> 95) and send
+    // 0 when identity could not be verified.
+    face_match_score: faceMatchScore == null ? 0 : Math.round(faceMatchScore * 10000) / 100,
     captured_photo_url: capturedPhotoUrl || null,
     geofencing_data: {
       geo_lat: lat,

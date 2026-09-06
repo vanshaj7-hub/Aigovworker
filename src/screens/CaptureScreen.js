@@ -173,6 +173,10 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
       </View>
 
       <View style={s.overlayBottom}>
+        <View style={s.reminder}>
+          <Icon name="no-photography" size={16} color="#FDD663" style={{marginRight: 8}} />
+          <Text style={s.reminderText}>{tr('removeAccessories')}</Text>
+        </View>
         <Chip
           ok={faceState === 'yes'}
           neutral={faceState === 'unknown'}
@@ -247,6 +251,20 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   chipLabel: {color: '#fff', fontSize: 14, fontWeight: '500'},
+
+  reminder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(32,33,36,0.9)',
+    borderColor: '#FDD663',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 12,
+    maxWidth: '100%',
+  },
+  reminderText: {color: '#FDD663', fontSize: 12.5, fontWeight: '600', flexShrink: 1},
 
   hint: {
     textAlign: 'center',
