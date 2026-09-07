@@ -70,6 +70,9 @@ function Shell() {
   // The start-of-day location gate runs only once (after the profile is first
   // completed); this remembers that it has, so it is not shown on every launch.
   const [locationCheckedOnce, setLocationCheckedOnce] = useState(false);
+  // Per-session opt-out: lets the supervisor mark attendance from outside the
+  // ward after choosing "skip for now" on the geo-fence block.
+  const [attnBypass, setAttnBypass] = useState(false);
   const [backendCounts, setBackendCounts] = useState(null);
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
@@ -216,7 +219,9 @@ function Shell() {
     setActive(null);
     setResult(null);
     setBreach(null);
-  }, []);
+    // Re-pull the day's counts and roster so Home shows the latest numbers.
+    loadBackendWorkspace();
+  }, [loadBackendWorkspace]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -294,7 +299,7 @@ function Shell() {
         matchScore: score,
         verified,
         location: fix ? {lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy} : null,
-        insideGeofence: true,
+        insideGeofence: f ? f.state === 'inside' : true,
         distanceM: f && f.distance != null ? Math.round(f.distance) : null,
         photoUri: stored,
         supervisorId: session.supervisorId,
@@ -318,11 +323,15 @@ function Shell() {
             lat: fix ? fix.lat : null,
             lng: fix ? fix.lng : null,
             distanceFromWard: f && f.distance != null ? f.distance : null,
-            inside: true,
+            inside: f ? f.state === 'inside' : false,
           })
           .then(r => {
             if (r && !r.ok && !r.skipped) {
               console.warn('mark-attendance sync failed:', r.message);
+            } else if (r && r.ok) {
+              // Pull the fresh counts and worker statuses so Home and the roster
+              // reflect this mark.
+              loadBackendWorkspace();
             }
           });
       }
@@ -333,7 +342,7 @@ function Shell() {
         );
       }
     },
-    [shiftId, session, data.ward, isOnline],
+    [shiftId, session, data.ward, isOnline, loadBackendWorkspace],
   );
 
   const onCaptured = useCallback(
@@ -347,7 +356,7 @@ function Shell() {
       // the device is confirmed inside the ward (outside, or no fix, both stop).
       const fix = (await getLocation({timeout: 8000})) || position;
       const f = evaluateFence(fix, data.ward);
-      if (f.state !== 'inside') {
+      if (!attnBypass && f.state !== 'inside') {
         setPosition(fix || position);
         setBreach({reason: 'outside'});
         setScreen('breach');
@@ -403,7 +412,7 @@ function Shell() {
       // processed, so re-confirm it is still inside the ward.
       const afterFix = (await getLocation({timeout: 8000})) || fix;
       const afterFence = evaluateFence(afterFix, data.ward);
-      if (afterFence.state !== 'inside') {
+      if (!attnBypass && afterFence.state !== 'inside') {
         setPosition(afterFix);
         setBreach({reason: 'moved'});
         setScreen('breach');
@@ -419,7 +428,7 @@ function Shell() {
         f: afterFence,
       });
     },
-    [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding],
+    [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding, attnBypass],
   );
 
   /* ------------------------------------------------------------ demo data */
@@ -594,13 +603,13 @@ function Shell() {
           setShiftId={setShiftId}
           onBack={goHome}
           onPick={w => {
-            // Strict: cannot start marking unless confirmed inside the ward.
-            if (fence.state !== 'inside') {
+            setActive(w);
+            // Strict unless the supervisor has chosen to skip the location check.
+            if (!attnBypass && fence.state !== 'inside') {
               setBreach({reason: 'outside'});
               setScreen('breach');
               return;
             }
-            setActive(w);
             setScreen('capture');
           }}
         />
@@ -640,6 +649,14 @@ function Shell() {
           fence={fence}
           movedAfterMatch={breach && breach.reason === 'moved'}
           onBack={goHome}
+          onSkip={() => {
+            // Skip the geo-fence for the rest of this session and continue
+            // marking. The attendance record still carries the real (outside)
+            // location so the backend knows it was not verified.
+            setAttnBypass(true);
+            setBreach(null);
+            setScreen(active ? 'capture' : 'attendance');
+          }}
           onRetry={async () => {
             const p = await getLocation({timeout: 10000});
             if (p) {
@@ -647,8 +664,8 @@ function Shell() {
             }
             const f = evaluateFence(p || position, data.ward);
             setBreach(null);
-            setScreen(f.state === 'outside' ? 'breach' : active ? 'capture' : 'attendance');
-            if (f.state === 'outside') {
+            setScreen(f.state !== 'inside' ? 'breach' : active ? 'capture' : 'attendance');
+            if (f.state !== 'inside') {
               setBreach({reason: 'outside'});
             }
           }}
@@ -706,8 +723,30 @@ function Shell() {
         <AddLeaveScreen
           workers={data.workers}
           onBack={goHome}
-          onSaved={(leaves, worker) => {
+          onSaved={(leaves, worker, detail) => {
             setData(d => ({...d, leaves}));
+            // Best-effort mirror: POST the leave to /add-leave.
+            if (USE_BACKEND && worker.fromBackend && detail) {
+              svc
+                .submitLeave({
+                  workerId: worker.workerId != null ? worker.workerId : worker.id,
+                  leaveType: detail.type
+                    ? detail.type.charAt(0).toUpperCase() + detail.type.slice(1)
+                    : 'Casual',
+                  shiftId: detail.bothShifts ? null : detail.shift,
+                  fromDate: detail.from,
+                  toDate: detail.to,
+                  reason: detail.remarks || null,
+                  supervisorId: session.supervisorId,
+                })
+                .then(r => {
+                  if (r && !r.ok && !r.skipped) {
+                    console.warn('add-leave sync failed:', r.message);
+                  } else if (r && r.ok) {
+                    loadBackendWorkspace(); // refresh on-leave / pending counts
+                  }
+                });
+            }
             Alert.alert(tr('addLeave'), tr('leaveSaved', {name: worker.name}));
             goHome();
           }}
@@ -757,6 +796,7 @@ function Shell() {
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
               setProfileSkipped(false);
+              setAttnBypass(false);
               return;
             }
             if (target === 'attendance') {

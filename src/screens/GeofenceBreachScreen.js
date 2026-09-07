@@ -3,7 +3,7 @@ import {Alert, ScrollView, StyleSheet, Text, View} from 'react-native';
 import Svg, {Circle, Line, Path, Rect} from 'react-native-svg';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
-import {Banner, BottomBar, FilledButton, Icon, OutlinedButton, Screen} from '../ui';
+import {Banner, BottomBar, FilledButton, Icon, OutlinedButton, Screen, TextButton} from '../ui';
 import {formatDistance} from '../domain/geo';
 import {reportBoundaryIssue} from '../storage';
 
@@ -45,7 +45,7 @@ function FenceMap({wardLabel, youLabel, distanceLabel}) {
   );
 }
 
-export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRecentre, movedAfterMatch}) {
+export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRecentre, onSkip, movedAfterMatch}) {
   const {t: tr} = useLang();
   const dist = formatDistance(fence.overshoot);
 
@@ -117,6 +117,16 @@ export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRe
               style={{marginTop: 10}}
             />
             <Text style={s.recentreNote}>{tr('recentreNote')}</Text>
+          </>
+        ) : null}
+        {onSkip ? (
+          <>
+            <TextButton
+              label={tr('markWithoutLocation')}
+              onPress={onSkip}
+              style={{marginTop: 12}}
+            />
+            <Text style={s.recentreNote}>{tr('markWithoutLocationNote')}</Text>
           </>
         ) : null}
       </BottomBar>

@@ -8,6 +8,7 @@
 import {USE_BACKEND, isUploadConfigured} from './config';
 import * as api from './api';
 import * as local from './storage';
+import {parseWardPolygon, polygonCentroid} from './domain/geo';
 import {
   uploadProfilePhoto,
   uploadWorkerReference,
@@ -80,13 +81,23 @@ export async function changeAccountPassword(email, oldPassword, newPassword) {
 const wardFromHome = home => {
   const sup = home.supervisor || {};
   const g = sup.geofencing_data || {};
+  // The identifier is `ward_code` in the current API (was `ward_id`).
+  const wardId = sup.ward_code != null ? sup.ward_code : sup.ward_id;
+  // New format: a polygon boundary. Older format: a centre point + radius.
+  const polygon = parseWardPolygon(g.coordinates);
+  const center = polygon
+    ? polygonCentroid(polygon)
+    : g.geo_lat != null && g.geo_long != null
+    ? {lat: g.geo_lat, lng: g.geo_long}
+    : null;
   return {
-    code: `W${sup.ward_id}`,
-    wardId: sup.ward_id,
-    number: sup.ward_id,
-    name: sup.ward_name || `Ward ${sup.ward_id}`,
-    shortName: sup.ward_name || `Ward ${sup.ward_id}`,
-    center: g.geo_lat != null && g.geo_long != null ? {lat: g.geo_lat, lng: g.geo_long} : null,
+    code: `W${wardId}`,
+    wardId,
+    number: wardId,
+    name: sup.ward_name || `Ward ${wardId}`,
+    shortName: sup.ward_name || `Ward ${wardId}`,
+    polygon,
+    center,
     radiusM: g.radius_meters || 100,
     fromBackend: true,
   };

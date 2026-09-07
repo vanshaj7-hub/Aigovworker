@@ -249,6 +249,8 @@ export const STRINGS = {
     skipProfileNote: 'You can start using the app without a photo. You will be asked to complete your profile each time you open the app until it is done.',
     skipLocation: 'Skip for now',
     skipLocationNote: 'The location check will be bypassed for this session only. You can continue and mark attendance, but it will not be verified against the ward boundary.',
+    markWithoutLocation: 'Skip for now — mark anyway',
+    markWithoutLocationNote: 'Attendance will be recorded from your current location and flagged as outside the ward. This applies for the rest of this session.',
     // shared
     ok: 'OK',
     close: 'Close',
@@ -481,6 +483,8 @@ export const STRINGS = {
     skipProfileNote: 'आप फ़ोटो के बिना भी ऐप का उपयोग शुरू कर सकते हैं। प्रोफ़ाइल पूरी होने तक, हर बार ऐप खोलने पर आपसे इसे पूरा करने को कहा जाएगा।',
     skipLocation: 'अभी के लिए छोड़ें',
     skipLocationNote: 'इस सत्र के लिए स्थान जाँच को छोड़ दिया जाएगा। आप जारी रखकर उपस्थिति दर्ज कर सकते हैं, लेकिन इसे वार्ड सीमा के विरुद्ध सत्यापित नहीं किया जाएगा।',
+    markWithoutLocation: 'अभी के लिए छोड़ें — फिर भी दर्ज करें',
+    markWithoutLocationNote: 'उपस्थिति आपके वर्तमान स्थान से दर्ज होगी और वार्ड के बाहर के रूप में चिह्नित होगी। यह इस सत्र के बाकी समय पर लागू रहेगा।',
     ok: 'ठीक है',
     close: 'बंद करें',
     designations: ['सफ़ाई कर्मी', 'सहायक', 'चालक', 'पर्यवेक्षक'],

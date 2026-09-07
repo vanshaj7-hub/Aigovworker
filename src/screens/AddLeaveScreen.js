@@ -57,16 +57,20 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
     setBusy(true);
     try {
       const range = from <= to ? {from, to} : {from: to, to: from};
-      const {leaves} = await addLeave({
-        workerId: worker.id,
-        workerName: worker.name,
+      const detail = {
         type,
-        ...range,
+        from: range.from,
+        to: range.to,
         bothShifts,
         shift: bothShifts ? null : shift,
         remarks: remarks.trim(),
+      };
+      const {leaves} = await addLeave({
+        workerId: worker.id,
+        workerName: worker.name,
+        ...detail,
       });
-      onSaved(leaves, worker);
+      onSaved(leaves, worker, detail);
     } finally {
       setBusy(false);
     }
