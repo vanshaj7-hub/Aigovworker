@@ -117,6 +117,7 @@ export const markAttendance = ({
   workerId,
   shiftId,
   faceMatchScore,
+  faceMatchStatus,
   capturedPhotoUrl,
   lat,
   lng,
@@ -130,6 +131,8 @@ export const markAttendance = ({
     // 0-100 percentage (and rejects null), so scale it up (0.95 -> 95) and send
     // 0 when identity could not be verified.
     face_match_score: faceMatchScore == null ? 0 : Math.round(faceMatchScore * 10000) / 100,
+    // Required by the backend — "Matched" / "Not Matched".
+    face_match_status: faceMatchStatus || 'Not Matched',
     captured_photo_url: capturedPhotoUrl || null,
     geofencing_data: {
       geo_lat: lat,

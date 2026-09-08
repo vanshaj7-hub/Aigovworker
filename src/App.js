@@ -68,6 +68,9 @@ function Shell() {
   // ward after choosing "skip for now" on the geo-fence block. (Location is
   // never checked at login — only here, during attendance.)
   const [attnBypass, setAttnBypass] = useState(false);
+  // Workers whose verification (face/location) failed this session. They show
+  // as Absent in the roster but stay selectable so the supervisor can retry.
+  const [failed, setFailed] = useState({});
   const [backendCounts, setBackendCounts] = useState(null);
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
@@ -251,6 +254,15 @@ function Shell() {
         demo: !!worker.demo,
       });
       setData(d => ({...d, records}));
+      // This worker is now marked, so clear any earlier failed/Absent attempt.
+      setFailed(m => {
+        if (!m[worker.id]) {
+          return m;
+        }
+        const next = {...m};
+        delete next[worker.id];
+        return next;
+      });
       setResult(record);
       setScreen('verified');
       // Best-effort mirror: upload the captured face and POST mark-attendance.
@@ -264,6 +276,7 @@ function Shell() {
             photoUri: stored,
             shiftId,
             faceMatchScore: score,
+            faceMatchStatus: verified ? 'Matched' : 'Not Matched',
             lat: fix ? fix.lat : null,
             lng: fix ? fix.lng : null,
             distanceFromWard: f && f.distance != null ? f.distance : null,
@@ -330,9 +343,11 @@ function Shell() {
         embedding = out.embedding;
         faceUri = out.faceUri;
       } catch (err) {
+        // No / unclear face — mark Absent for now; the supervisor can retry.
+        setFailed(m => ({...m, [worker.id]: true}));
         Alert.alert(
           err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
-          faceErrorMessage(err, tr),
+          `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
         );
         return;
       }
@@ -348,10 +363,12 @@ function Shell() {
           ]),
         );
         if (!add) {
-          return; // do not mark until a reference exists
+          setFailed(m => ({...m, [worker.id]: true})); // Absent until a reference is added
+          return;
         }
         const refUri = await requestPhoto(tr('referenceFor', {name: worker.name}));
         if (!refUri) {
+          setFailed(m => ({...m, [worker.id]: true}));
           return;
         }
         try {
@@ -360,9 +377,10 @@ function Shell() {
           const key = worker.workerId != null ? worker.workerId : worker.id;
           refCache.current[key] = reference; // used for this session's matching
         } catch (err) {
+          setFailed(m => ({...m, [worker.id]: true}));
           Alert.alert(
             err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
-            faceErrorMessage(err, tr),
+            `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
           );
           return;
         }
@@ -371,7 +389,9 @@ function Shell() {
       // Verify the live capture against the reference. Always strict now.
       const sim = cosineSimilarity(embedding, reference);
       if (sim < MATCH_THRESHOLD) {
-        Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
+        // Face did not match — mark Absent and let the supervisor retry.
+        setFailed(m => ({...m, [worker.id]: true}));
+        Alert.alert(tr('notMatched'), `${tr('notMatchedBody', {name: worker.name})} ${tr('markedAbsentRetry')}`);
         return;
       }
       const score = Math.round(sim * 100) / 100;
@@ -548,6 +568,7 @@ function Shell() {
           workers={data.workers}
           records={data.records}
           leaves={data.leaves}
+          failed={failed}
           fence={fence}
           shiftId={shiftId}
           setShiftId={setShiftId}
@@ -744,6 +765,7 @@ function Shell() {
               setBackendCounts(null);
               setProfileSkipped(false);
               setAttnBypass(false);
+              setFailed({});
               return;
             }
             if (target === 'attendance') {

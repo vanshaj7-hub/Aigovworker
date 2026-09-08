@@ -22,6 +22,7 @@ export default function SelectWorkerScreen({
   workers,
   records,
   leaves,
+  failed,
   fence,
   shiftId,
   setShiftId,
@@ -41,10 +42,11 @@ export default function SelectWorkerScreen({
         const backendStatus = w.attendanceStatus
           ? {status: w.attendanceStatus === 'on_leave' ? 'leave' : w.attendanceStatus}
           : null;
-        return {
-          worker: w,
-          ...(backendStatus || resolveStatus({workerId: w.id, dk, shiftId, records, leaves})),
-        };
+        const resolved = backendStatus || resolveStatus({workerId: w.id, dk, shiftId, records, leaves});
+        // A failed verification this session shows as Absent, but stays retryable.
+        const status =
+          resolved.status === 'pending' && failed && failed[w.id] ? 'absent' : resolved.status;
+        return {worker: w, ...resolved, status};
       })
       .filter(
         row =>
@@ -52,7 +54,7 @@ export default function SelectWorkerScreen({
           row.worker.name.toLowerCase().includes(q) ||
           (row.worker.code || '').toLowerCase().includes(q),
       );
-  }, [workers, records, leaves, dk, shiftId, query]);
+  }, [workers, records, leaves, failed, dk, shiftId, query]);
 
   const pendingCount = rows.filter(r2 => r2.status === 'pending').length;
 

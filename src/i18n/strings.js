@@ -92,6 +92,7 @@ export const STRINGS = {
     // face match failure
     notMatched: 'Face did not match',
     notMatchedBody: 'The captured face does not match the reference photograph on file for {name}.',
+    markedAbsentRetry: 'Marked Absent — tap the worker again to retry.',
     tryAgain: 'Try again',
     // missing reference photo
     noReferenceTitle: 'Reference photo required',
@@ -354,6 +355,7 @@ export const STRINGS = {
     backToHome: 'होम पर लौटें',
     notMatched: 'चेहरा मेल नहीं खाया',
     notMatchedBody: 'लिया गया चेहरा {name} की संदर्भ फ़ोटो से मेल नहीं खाता।',
+    markedAbsentRetry: 'अनुपस्थित के रूप में दर्ज — पुनः प्रयास हेतु कर्मचारी पर फिर टैप करें।',
     noReferenceTitle: 'संदर्भ फ़ोटो आवश्यक',
     noReferenceBody: '{name} की कोई संदर्भ फ़ोटो नहीं है। पहचान सत्यापित करने के लिए अभी जोड़ें — जब तक यह नहीं जुड़ती, उपस्थिति दर्ज नहीं की जा सकती।',
     addReferencePhoto: 'संदर्भ फ़ोटो जोड़ें',
