@@ -143,11 +143,11 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
             onPress={() => navigate('attendance')}
           />
           <ActionTile
-            icon="person-add-alt"
+            icon="groups"
             color={c.success}
-            title={tr('addWorker')}
-            sub={tr('oneTimeOnboarding')}
-            onPress={() => navigate('addWorker')}
+            title={tr('manageWorkers')}
+            sub={tr('addOrEditWorkers')}
+            onPress={() => navigate('workers')}
           />
           <ActionTile
             icon="event-busy"

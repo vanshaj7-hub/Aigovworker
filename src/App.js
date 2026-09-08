@@ -35,6 +35,7 @@ import CaptureScreen from './screens/CaptureScreen';
 import VerifiedScreen from './screens/VerifiedScreen';
 import GeofenceBreachScreen from './screens/GeofenceBreachScreen';
 import AddWorkerScreen from './screens/AddWorkerScreen';
+import WorkerListScreen from './screens/WorkerListScreen';
 import AddLeaveScreen from './screens/AddLeaveScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import OfflineSyncScreen from './screens/OfflineSyncScreen';
@@ -71,6 +72,8 @@ function Shell() {
   // Workers whose verification (face/location) failed this session. They show
   // as Absent in the roster but stay selectable so the supervisor can retry.
   const [failed, setFailed] = useState({});
+  // The worker being edited in the add/edit form (null = adding a new worker).
+  const [editWorker, setEditWorker] = useState(null);
   const [backendCounts, setBackendCounts] = useState(null);
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
@@ -657,10 +660,27 @@ function Shell() {
         />
       );
 
+    case 'workers':
+      return (
+        <WorkerListScreen
+          workers={data.workers}
+          onBack={goHome}
+          onAdd={() => {
+            setEditWorker(null);
+            setScreen('addWorker');
+          }}
+          onEdit={w => {
+            setEditWorker(w);
+            setScreen('addWorker');
+          }}
+        />
+      );
+
     case 'addWorker':
       return (
         <AddWorkerScreen
-          onBack={goHome}
+          worker={editWorker}
+          onBack={() => setScreen('workers')}
           openCamera={() => requestPhoto(tr('referencePhotograph'))}
           onSaved={async (workers, worker) => {
             // Save to the backend and only report success once it actually
@@ -682,7 +702,31 @@ function Shell() {
             } else {
               Alert.alert(tr('addWorker'), tr('workerSyncFailed', {msg: r.message || ''}));
             }
-            goHome(); // re-pulls the roster from the backend (with the new worker)
+            loadBackendWorkspace(); // pull the updated roster
+            setScreen('workers');
+          }}
+          onUpdate={async fields => {
+            const r = await svc.submitWorkerUpdate({
+              supervisorId: session.supervisorId,
+              wardId: data.ward && (data.ward.wardId || data.ward.number),
+              workerId: fields.workerId,
+              fullName: fields.fullName,
+              relationName: fields.fatherName || '',
+              relation: 'Father',
+              phone: fields.mobile || '',
+              gender: fields.gender || 'Male',
+              designation: fields.designation,
+              dateOfBirth: fields.dateOfBirth || null,
+              photoUri: fields.photoUri,
+              referenceUrl: fields.referenceUrl,
+            });
+            if (!r || r.ok || r.skipped) {
+              Alert.alert(tr('editWorker'), tr('workerUpdated', {name: fields.fullName}));
+            } else {
+              Alert.alert(tr('editWorker'), tr('workerUpdateFailed', {msg: r.message || ''}));
+            }
+            loadBackendWorkspace();
+            setScreen('workers');
           }}
         />
       );
@@ -770,6 +814,11 @@ function Shell() {
             }
             if (target === 'attendance') {
               setShiftId(currentShift().id);
+            }
+            // Re-pull the roster (with each worker's reference photo) whenever
+            // entering attendance or the worker-management list.
+            if (target === 'attendance' || target === 'workers') {
+              loadBackendWorkspace();
             }
             setScreen(target);
           }}

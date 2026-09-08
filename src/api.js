@@ -170,6 +170,36 @@ export const addWorker = ({
     face_reference_photo_url: faceReferencePhotoUrl,
   });
 
+/* ------------------------------------------------------------ 8b update worker */
+// NOTE: endpoint path/shape is a best guess mirroring /add-worker plus worker_id,
+// pending the real /update-worker endpoint from the backend team.
+export const updateWorker = ({
+  workerId,
+  fullName,
+  relationName,
+  relation,
+  phone,
+  gender,
+  dateOfBirth,
+  designation,
+  wardId,
+  supervisorId,
+  faceReferencePhotoUrl,
+}) =>
+  post('/update-worker', {
+    worker_id: workerId,
+    full_name: fullName,
+    relation_name: relationName,
+    relation,
+    phone: String(phone || '').replace(/\D/g, ''),
+    gender,
+    date_of_birth: dateOfBirth || null,
+    designation,
+    ward_code: wardId,
+    supervisor_id: supervisorId,
+    face_reference_photo_url: faceReferencePhotoUrl,
+  });
+
 /* ---------------------------------------------------------------- 9 add leave */
 export const addLeave = ({
   workerId,

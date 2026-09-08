@@ -230,6 +230,27 @@ export async function submitWorker({supervisorId, wardId, photoUri, ...fields}) 
 }
 
 /**
+ * Updates an existing worker's details. A new local photo (file://) is uploaded
+ * first; an unchanged existing photo (https URL) is kept as-is.
+ * payload: {supervisorId, wardId, workerId, referenceUrl, photoUri, ...fields}
+ */
+export async function submitWorkerUpdate({supervisorId, wardId, workerId, photoUri, referenceUrl, ...fields}) {
+  if (!USE_BACKEND) {
+    return {ok: false, skipped: true, message: 'Saved on device'};
+  }
+  try {
+    let faceReferencePhotoUrl = referenceUrl || null;
+    if (photoUri && !/^https?:/i.test(photoUri)) {
+      faceReferencePhotoUrl = await uploadWorkerReference(photoUri, {supervisorId, wardId, workerId});
+    }
+    const res = await api.updateWorker({...fields, supervisorId, wardId, workerId, faceReferencePhotoUrl});
+    return {ok: true, photoUrl: faceReferencePhotoUrl, res};
+  } catch (err) {
+    return {ok: false, error: err, message: err.message};
+  }
+}
+
+/**
  * Completes the supervisor's own profile. The profile photo is uploaded to
  * Firebase first and its URL is sent as profile_photo_url.
  * payload: {supervisorId, wardId, email, fullName, phone, photoUri}

@@ -28,17 +28,20 @@ function dobToIso(s) {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
-export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
+export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, openCamera}) {
   const {t: tr} = useLang();
+  const editing = !!worker;
   const designations = tr('designations');
-  const [name, setName] = useState('');
-  const [father, setFather] = useState('');
-  const [mobile, setMobile] = useState('');
-  const [gender, setGender] = useState('Male');
-  const [dob, setDob] = useState(''); // shown as DD/MM/YYYY
-  const [designation, setDesignation] = useState(designations[0]);
+  const [name, setName] = useState(worker?.name || '');
+  const [father, setFather] = useState(worker?.fatherName || '');
+  const [mobile, setMobile] = useState(worker?.mobile || '');
+  const [gender, setGender] = useState(worker?.gender || 'Male');
+  const [dob, setDob] = useState(''); // DD/MM/YYYY — not returned by the API, so blank
+  const [designation, setDesignation] = useState(worker?.designation || designations[0]);
   const [picker, setPicker] = useState(null); // null | 'gender' | 'designation'
-  const [photo, setPhoto] = useState(null);
+  // In edit mode the existing reference photo (an https URL) is shown; capturing
+  // a new one replaces it. `embedding` is only set when a NEW photo is taken.
+  const [photo, setPhoto] = useState(worker?.photoUri || worker?.referenceUrl || null);
   const [embedding, setEmbedding] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -74,11 +77,43 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
   };
 
   const save = async () => {
-    if (!name.trim() || !embedding) {
+    if (!name.trim()) {
+      Alert.alert(tr(editing ? 'editWorker' : 'addWorker'), tr('nameRequired'));
+      return;
+    }
+
+    if (editing) {
+      // Edit mode: the existing photo is kept unless a new one is captured, and
+      // date of birth is optional (only validated/updated when provided).
+      const iso = dob ? dobToIso(dob) : null;
+      if (dob && !iso) {
+        Alert.alert(tr('editWorker'), tr('dobInvalid'));
+        return;
+      }
+      setBusy(true);
+      try {
+        await onUpdate({
+          workerId: worker.workerId != null ? worker.workerId : worker.id,
+          fullName: name.trim(),
+          fatherName: father.trim(),
+          mobile: mobile.trim(),
+          gender,
+          dateOfBirth: iso,
+          designation,
+          photoUri: photo, // https (unchanged) or file:// (newly captured)
+          referenceUrl: worker.referenceUrl || null,
+        });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Add mode: a reference photo and a valid date of birth are required.
+    if (!embedding) {
       Alert.alert(tr('addWorker'), tr('needNameAndPhoto'));
       return;
     }
-    // The backend requires both of these, so collect them before saving.
     const iso = dobToIso(dob);
     if (!iso) {
       Alert.alert(tr('addWorker'), tr('dobInvalid'));
@@ -86,7 +121,7 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
     }
     setBusy(true);
     try {
-      const {workers, worker} = await addWorker({
+      const {workers, worker: created} = await addWorker({
         name: name.trim(),
         fatherName: father.trim(),
         mobile: mobile.trim(),
@@ -98,7 +133,7 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
       });
       // Awaited so the button stays busy until the worker is actually saved to
       // the backend (upload + POST), not just written on the device.
-      await onSaved(workers, worker);
+      await onSaved(workers, created);
     } finally {
       setBusy(false);
     }
@@ -117,7 +152,7 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
 
   return (
     <Screen bg={c.surface}>
-      <AppBar title={tr('addWorker')} onBack={onBack} />
+      <AppBar title={tr(editing ? 'editWorker' : 'addWorker')} onBack={onBack} />
       <Divider />
       <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => captureReference(openCamera)} style={s.refCard}>
@@ -167,14 +202,19 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
         <View style={s.noteRow}>
           <Icon name="info-outline" size={19} style={{marginRight: 12, marginTop: 1}} />
           <Text style={[t.bodyMuted, {flex: 1, lineHeight: 20, fontSize: 13.5}]}>
-            {tr('oneTimeNote')}
+            {tr(editing ? 'editWorkerNote' : 'oneTimeNote')}
           </Text>
         </View>
       </ScrollView>
 
       <BottomBar style={s.bottom}>
         <TextButton label={tr('cancel')} onPress={onBack} />
-        <FilledButton label={tr('saveWorker')} onPress={save} busy={busy} style={{minWidth: 160}} />
+        <FilledButton
+          label={tr(editing ? 'saveChanges' : 'saveWorker')}
+          onPress={save}
+          busy={busy}
+          style={{minWidth: 160}}
+        />
       </BottomBar>
 
       <Modal visible={!!picker} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
