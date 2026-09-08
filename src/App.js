@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Alert, BackHandler, Modal, StatusBar, View} from 'react-native';
+import {ActivityIndicator, Alert, BackHandler, Modal, StatusBar, Text, View} from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import RNFS from 'react-native-fs';
 import {c} from './theme';
@@ -9,13 +9,12 @@ import {
   clearDemoData,
   flushQueue,
   getSession,
-  getLocationChecked,
-  setLocationChecked,
   dismissPasswordPrompt,
   isProfileComplete,
   loadAll,
   seedDemoHistory,
   seedDemoWorkers,
+  setProfilePhotoUrl,
   setWardCentre,
   signOut as clearSession,
 } from './storage';
@@ -30,7 +29,6 @@ import {MATCH_THRESHOLD, cosineSimilarity, extractFaceEmbedding, faceErrorMessag
 import SignInScreen from './screens/SignInScreen';
 import ChangePasswordScreen from './screens/ChangePasswordScreen';
 import ProfileSetupScreen from './screens/ProfileSetupScreen';
-import LocationGateScreen from './screens/LocationGateScreen';
 import HomeScreen from './screens/HomeScreen';
 import SelectWorkerScreen from './screens/SelectWorkerScreen';
 import CaptureScreen from './screens/CaptureScreen';
@@ -63,15 +61,12 @@ function Shell() {
   const [active, setActive] = useState(null);
   const [result, setResult] = useState(null);
   const [breach, setBreach] = useState(null); // {reason: 'outside'|'moved'}
-  const [gate, setGate] = useState('checking'); // checking | ok | blocked
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
   const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
   const [profileSkipped, setProfileSkipped] = useState(false);
-  // The start-of-day location gate runs only once (after the profile is first
-  // completed); this remembers that it has, so it is not shown on every launch.
-  const [locationCheckedOnce, setLocationCheckedOnce] = useState(false);
   // Per-session opt-out: lets the supervisor mark attendance from outside the
-  // ward after choosing "skip for now" on the geo-fence block.
+  // ward after choosing "skip for now" on the geo-fence block. (Location is
+  // never checked at login — only here, during attendance.)
   const [attnBypass, setAttnBypass] = useState(false);
   const [backendCounts, setBackendCounts] = useState(null);
   // Reference face embeddings, built on demand from each worker's photo URL and
@@ -89,10 +84,8 @@ function Shell() {
       await requestPermissions();
       const s = await getSession();
       const all = await loadAll();
-      const locChecked = await getLocationChecked();
       setSession(s);
       setData(all);
-      setLocationCheckedOnce(locChecked);
       setBooted(true);
     })();
   }, []);
@@ -129,46 +122,10 @@ function Shell() {
     position,
   };
 
-  /* ------------------------------------------------------- location gate */
-
-  const runGate = useCallback(async () => {
-    setGate('checking');
-    // A cold start often has no fix yet, so ask a few times and never accept a
-    // cached position for this check.
-    let fix = null;
-    for (let i = 0; i < 3 && !fix && alive.current; i++) {
-      fix = await getLocation({timeout: 10000, maximumAge: 0});
-    }
-    if (fix) {
-      setPosition(fix);
-    }
-    // No administrator fence yet — provision it from this device's position so
-    // the ward has a centre. Replaced by the server value once a backend exists.
-    let ward = data.ward;
-    if (ward && !ward.center && fix) {
-      ward = await setWardCentre(fix);
-      setData(d => ({...d, ward}));
-    }
-    const f = evaluateFence(fix, ward);
-    // Anything other than a confirmed "inside" keeps the app locked. Once it
-    // passes it is remembered, so this start-of-day check runs only once.
-    if (f.state === 'inside') {
-      await setLocationChecked();
-      if (alive.current) {
-        setLocationCheckedOnce(true);
-      }
-      setGate('ok');
-    } else {
-      setGate('blocked');
-    }
-  }, [data.ward, position]);
-
   // The backend is the source of truth for whether the profile is complete, so
   // a returning supervisor whose profile is already done is never re-prompted.
   const profileReady =
     (session && session.profileCompleted) || isProfileComplete(data.profile);
-  // The supervisor may skip an incomplete profile for this session.
-  const canProceed = profileReady || profileSkipped;
 
   // With the backend on, pull the real ward (and its geo-fence), the day's
   // counts and the worker roll before the location gate runs.
@@ -199,19 +156,6 @@ function Shell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, workspaceLoaded]);
-
-  useEffect(() => {
-    if (
-      session &&
-      canProceed &&
-      workspaceLoaded &&
-      !locationCheckedOnce &&
-      gate === 'checking'
-    ) {
-      runGate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, canProceed, workspaceLoaded, locationCheckedOnce]);
 
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
@@ -392,21 +336,46 @@ function Shell() {
         );
         return;
       }
-      // Match against the worker's reference face when one is on file. With no
-      // reference photo, attendance is still recorded but marked unverified
-      // rather than blocked (older records may predate reference photos).
-      const reference = await buildReferenceEmbedding(worker);
-      let score = null;
-      let verified = false;
-      if (reference) {
-        const sim = cosineSimilarity(embedding, reference);
-        if (sim < MATCH_THRESHOLD) {
-          Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
+      // A real worker MUST have a reference face to verify against. If none is
+      // on file, require capturing one now — attendance cannot continue for this
+      // worker until a reference is added.
+      let reference = await buildReferenceEmbedding(worker);
+      if (!reference) {
+        const add = await new Promise(resolve =>
+          Alert.alert(tr('noReferenceTitle'), tr('noReferenceBody', {name: worker.name}), [
+            {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
+            {text: tr('addReferencePhoto'), onPress: () => resolve(true)},
+          ]),
+        );
+        if (!add) {
+          return; // do not mark until a reference exists
+        }
+        const refUri = await requestPhoto(tr('referenceFor', {name: worker.name}));
+        if (!refUri) {
           return;
         }
-        score = Math.round(sim * 100) / 100;
-        verified = true;
+        try {
+          const out = await extractFaceEmbedding(refUri);
+          reference = out.embedding;
+          const key = worker.workerId != null ? worker.workerId : worker.id;
+          refCache.current[key] = reference; // used for this session's matching
+        } catch (err) {
+          Alert.alert(
+            err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
+            faceErrorMessage(err, tr),
+          );
+          return;
+        }
       }
+
+      // Verify the live capture against the reference. Always strict now.
+      const sim = cosineSimilarity(embedding, reference);
+      if (sim < MATCH_THRESHOLD) {
+        Alert.alert(tr('notMatched'), tr('notMatchedBody', {name: worker.name}));
+        return;
+      }
+      const score = Math.round(sim * 100) / 100;
+      const verified = true;
 
       // 4. Location again — strict: the device may have moved while the face was
       // processed, so re-confirm it is still inside the ward.
@@ -428,7 +397,7 @@ function Shell() {
         f: afterFence,
       });
     },
-    [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding, attnBypass],
+    [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding, attnBypass, requestPhoto],
   );
 
   /* ------------------------------------------------------------ demo data */
@@ -487,7 +456,6 @@ function Shell() {
           const all = await loadAll();
           setSession(s);
           setData(all);
-          setGate('checking');
           setScreen('home');
         }}
       />
@@ -515,6 +483,19 @@ function Shell() {
     );
   }
 
+  // Hold on a brief loading screen until the real ward and roster arrive from
+  // the backend, so neither the profile screen nor Home flashes local
+  // placeholder ("dummy") data first. Location is NOT checked here — only during
+  // attendance marking.
+  if (USE_BACKEND && !workspaceLoaded) {
+    return (
+      <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface}}>
+        <ActivityIndicator color={c.primary} size="large" />
+        <Text style={{marginTop: 16, color: c.textMuted, fontSize: 14.5}}>{tr('loadingWard')}</Text>
+      </View>
+    );
+  }
+
   // Profile is re-checked on every sign-in. It can be skipped for now, but the
   // prompt returns on the next app open because profileSkipped is not persisted.
   if (!profileReady && !profileSkipped) {
@@ -527,7 +508,6 @@ function Shell() {
         onSkip={() => setProfileSkipped(true)}
         onDone={profile => {
           setData(d => ({...d, profile}));
-          setGate('checking');
           // Best-effort mirror: upload the photo to Firebase and POST the profile.
           svc
             .submitProfile({
@@ -538,48 +518,18 @@ function Shell() {
               phone: profile.mobile,
               photoUri: profile.photoUri,
             })
-            .then(r => {
-              if (r && !r.ok && !r.skipped) {
+            .then(async r => {
+              if (r && r.ok && r.photoUrl) {
+                // Persist the hosted URL so the avatar survives a restart (the
+                // local file path is temporary; no endpoint returns the photo).
+                const updated = await setProfilePhotoUrl(r.photoUrl);
+                if (updated && alive.current) {
+                  setData(d => ({...d, profile: updated}));
+                }
+              } else if (r && !r.ok && !r.skipped) {
                 console.warn('profile sync failed:', r.message);
               }
             });
-        }}
-      />
-    );
-  }
-
-  if (!locationCheckedOnce && gate !== 'ok') {
-    return (
-      <LocationGateScreen
-        ward={data.ward}
-        fence={fence}
-        checking={gate === 'checking'}
-        onRetry={runGate}
-        onRecentre={
-          data.ward && data.ward.centreFromDevice
-            ? async () => {
-                const fix = await getLocation({timeout: 12000});
-                if (!fix) {
-                  return;
-                }
-                const ward = await setWardCentre(fix, {force: true});
-                setData(d => ({...d, ward}));
-                setPosition(fix);
-                setGate('ok');
-              }
-            : null
-        }
-        onSkip={async () => {
-          // Skipping the one-time start-of-day check still counts as done, so it
-          // is not shown again. Attendance marking enforces the fence regardless.
-          await setLocationChecked();
-          setLocationCheckedOnce(true);
-          setGate('ok');
-        }}
-        onSignOut={async () => {
-          await clearSession();
-          setSession(null);
-          setGate('checking');
         }}
       />
     );
@@ -691,29 +641,27 @@ function Shell() {
         <AddWorkerScreen
           onBack={goHome}
           openCamera={() => requestPhoto(tr('referencePhotograph'))}
-          onSaved={(workers, worker) => {
-            setData(d => ({...d, workers}));
-            // Best-effort mirror: upload the reference face and POST the worker.
-            svc
-              .submitWorker({
-                supervisorId: session.supervisorId,
-                wardId: data.ward && (data.ward.wardId || data.ward.number),
-                fullName: worker.name,
-                relationName: worker.fatherName || '',
-                relation: 'Father',
-                phone: worker.mobile || '',
-                gender: worker.gender || 'Male',
-                designation: worker.designation,
-                dateOfBirth: worker.dateOfBirth || null,
-                photoUri: worker.photoUri,
-              })
-              .then(r => {
-                if (r && !r.ok && !r.skipped) {
-                  console.warn('add-worker sync failed:', r.message);
-                }
-              });
-            Alert.alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
-            goHome();
+          onSaved={async (workers, worker) => {
+            // Save to the backend and only report success once it actually
+            // persists, so a worker never shows "saved" but vanish on restart.
+            const r = await svc.submitWorker({
+              supervisorId: session.supervisorId,
+              wardId: data.ward && (data.ward.wardId || data.ward.number),
+              fullName: worker.name,
+              relationName: worker.fatherName || '',
+              relation: 'Father',
+              phone: worker.mobile || '',
+              gender: worker.gender || 'Male',
+              designation: worker.designation,
+              dateOfBirth: worker.dateOfBirth || null,
+              photoUri: worker.photoUri,
+            });
+            if (!r || r.ok || r.skipped) {
+              Alert.alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
+            } else {
+              Alert.alert(tr('addWorker'), tr('workerSyncFailed', {msg: r.message || ''}));
+            }
+            goHome(); // re-pulls the roster from the backend (with the new worker)
           }}
         />
       );
@@ -791,7 +739,6 @@ function Shell() {
             if (target === 'signOut') {
               await clearSession();
               setSession(null);
-              setGate('checking');
               setShowPasswordChange(false);
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);

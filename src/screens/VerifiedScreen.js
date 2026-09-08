@@ -4,6 +4,7 @@ import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {BottomBar, FilledButton, Icon, Screen, StatusPill, TextButton} from '../ui';
 import {clockTime, shiftLabel, shiftRange} from '../domain/shifts';
+import {localizeWorkerName} from '../localize';
 
 function Row({label, value, valueColor, icon, last}) {
   return (
@@ -72,7 +73,7 @@ export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
           </View>
 
           <View style={s.table}>
-            <Row label={tr('worker')} value={worker.name} />
+            <Row label={tr('worker')} value={localizeWorkerName(worker.name, tr)} />
             <Row label={tr('ward')} value={ward.name} />
             <Row
               label={tr('shift')}

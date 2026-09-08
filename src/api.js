@@ -160,7 +160,9 @@ export const addWorker = ({
     gender,
     date_of_birth: dateOfBirth || null,
     designation,
-    ward_id: wardId,
+    // The backend field is `ward_code` (was `ward_id`); sending the wrong name
+    // makes /add-worker reject with 422 and the worker is never saved.
+    ward_code: wardId,
     supervisor_id: supervisorId,
     face_reference_photo_url: faceReferencePhotoUrl,
   });

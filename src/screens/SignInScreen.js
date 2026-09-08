@@ -3,7 +3,7 @@ import {Alert, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'r
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
-import {DEMO_CREDENTIALS, isEmail} from '../storage';
+import {isEmail} from '../storage';
 import {authenticate} from '../session';
 
 export default function SignInScreen({onSignedIn}) {
@@ -58,7 +58,7 @@ export default function SignInScreen({onSignedIn}) {
             value={email}
             onChangeText={setEmail}
             icon="alternate-email"
-            placeholder={DEMO_CREDENTIALS.email}
+            placeholder="name@nndehradun.gov.in"
             keyboardType="email-address"
           />
           <Field label={tr('password')} value={pw} onChangeText={setPw} secure />
@@ -66,10 +66,6 @@ export default function SignInScreen({onSignedIn}) {
 
           {/* Accounts are issued by the IT team; there is no self-service reset. */}
           <Text style={s.forgot}>{tr('forgot')}</Text>
-
-          <Text style={s.demo}>
-            {tr('demoCredentials', {id: DEMO_CREDENTIALS.email, pw: DEMO_CREDENTIALS.password})}
-          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
       <View style={s.footer}>

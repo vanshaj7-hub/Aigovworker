@@ -16,6 +16,7 @@ import {
 } from '../ui';
 import {dateKey, resolveStatus, shiftLabel} from '../domain/shifts';
 import {formatDistance} from '../domain/geo';
+import {localizeDesignation, localizeWorkerName} from '../localize';
 
 export default function SelectWorkerScreen({
   workers,
@@ -155,12 +156,12 @@ export default function SelectWorkerScreen({
               onPress={() => selectable && onPick(worker)}
               android_ripple={{color: '#00000010'}}
               style={s.row}>
-              <Avatar name={worker.name} uri={worker.photoUri} size={44} />
+              <Avatar name={localizeWorkerName(worker.name, tr)} uri={worker.photoUri} size={44} />
               <View style={{flex: 1, marginLeft: 14}}>
-                <Text style={s.rowName}>{worker.name}</Text>
+                <Text style={s.rowName}>{localizeWorkerName(worker.name, tr)}</Text>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
                   <Text style={t.small}>
-                    {worker.designation} · {worker.code}
+                    {localizeDesignation(worker.designation, tr)} · {worker.code}
                   </Text>
                   {worker.demo ? (
                     <StatusPill label={tr('demoBadge')} tone="info" style={{marginLeft: 8, paddingVertical: 2}} />

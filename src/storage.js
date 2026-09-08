@@ -144,6 +144,16 @@ export const setLocationChecked = () => write(K.LOCATION_CHECKED, true);
 export const getProfile = () => read(K.PROFILE, null);
 export const saveProfile = p => write(K.PROFILE, {...p, completedAt: new Date().toISOString()});
 
+// Replace the profile photo with its hosted (Firebase) URL after upload, so the
+// avatar reloads from the network on restart instead of a temporary file path.
+export async function setProfilePhotoUrl(url) {
+  const p = await getProfile();
+  if (!p || !url) {
+    return p;
+  }
+  return write(K.PROFILE, {...p, photoUri: url});
+}
+
 /**
  * The supervisor's own details must be complete for the app to function, and
  * this is re-checked on every sign-in — not just the first.

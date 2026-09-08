@@ -96,7 +96,9 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
         photoUri: photo,
         embedding,
       });
-      onSaved(workers, worker);
+      // Awaited so the button stays busy until the worker is actually saved to
+      // the backend (upload + POST), not just written on the device.
+      await onSaved(workers, worker);
     } finally {
       setBusy(false);
     }
@@ -137,7 +139,7 @@ export default function AddWorkerScreen({onSaved, onBack, openCamera}) {
         <Field
           label={tr('mobileNumber')}
           value={mobile}
-          onChangeText={setMobile}
+          onChangeText={v => setMobile(v.replace(/\D/g, '').slice(0, 10))}
           icon="call"
           keyboardType="phone-pad"
         />

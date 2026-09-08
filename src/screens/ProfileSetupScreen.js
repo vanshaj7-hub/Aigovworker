@@ -18,8 +18,10 @@ import {profileGaps, saveProfile} from '../storage';
 export default function ProfileSetupScreen({session, ward, profile, onDone, openCamera, onSkip}) {
   const {t: tr} = useLang();
   const designations = tr('designations');
-  const [name, setName] = useState(profile?.name || '');
-  const [mobile, setMobile] = useState(profile?.mobile || '');
+  // Pre-fill from what the backend already knows (login/supervisor-home return
+  // the full name). Phone is not returned by any endpoint, so it starts blank.
+  const [name, setName] = useState(profile?.name || session?.fullName || '');
+  const [mobile, setMobile] = useState(profile?.mobile || session?.phone || '');
   const [designation, setDesignation] = useState(profile?.designation || designations[3]);
   const [photo, setPhoto] = useState(profile?.photoUri || null);
   const [pickerOpen, setPickerOpen] = useState(false);

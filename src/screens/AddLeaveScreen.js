@@ -19,6 +19,7 @@ import {
 } from '../ui';
 import {addLeave} from '../storage';
 import {dateKey} from '../domain/shifts';
+import {localizeWorkerName} from '../localize';
 import DatePickerSheet from '../DatePickerSheet';
 
 const TYPES = [
@@ -85,9 +86,9 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
         <Pressable onPress={() => setPickerOpen(true)} style={s.workerCard}>
           {worker ? (
             <>
-              <Avatar name={worker.name} uri={worker.photoUri} size={44} />
+              <Avatar name={localizeWorkerName(worker.name, tr)} uri={worker.photoUri} size={44} />
               <View style={{flex: 1, marginLeft: 14}}>
-                <Text style={s.workerName}>{worker.name}</Text>
+                <Text style={s.workerName}>{localizeWorkerName(worker.name, tr)}</Text>
                 <Text style={t.small}>
                   {worker.designation} · {worker.code}
                 </Text>
@@ -180,9 +181,9 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
                     setPickerOpen(false);
                   }}
                   style={s.sheetRow}>
-                  <Avatar name={w.name} uri={w.photoUri} size={38} />
+                  <Avatar name={localizeWorkerName(w.name, tr)} uri={w.photoUri} size={38} />
                   <View style={{flex: 1, marginLeft: 12}}>
-                    <Text style={[t.body, {fontSize: 15.5, fontWeight: '600'}]}>{w.name}</Text>
+                    <Text style={[t.body, {fontSize: 15.5, fontWeight: '600'}]}>{localizeWorkerName(w.name, tr)}</Text>
                     <Text style={t.small}>{w.code}</Text>
                   </View>
                   {worker && worker.id === w.id ? (

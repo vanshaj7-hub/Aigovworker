@@ -267,8 +267,17 @@ export function InfoBlock({icon, children, style}) {
 /* ------------------------------------------------------------------ pieces */
 
 export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
-  if (uri) {
-    return <Image source={{uri}} style={{width: size, height: size, borderRadius: size / 2}} />;
+  const [failed, setFailed] = useState(false);
+  // Fall back to initials if the photo cannot load (stale local path, network),
+  // so a missing image never leaves a blank circle.
+  if (uri && !failed) {
+    return (
+      <Image
+        source={{uri}}
+        onError={() => setFailed(true)}
+        style={{width: size, height: size, borderRadius: size / 2}}
+      />
+    );
   }
   return (
     <View
