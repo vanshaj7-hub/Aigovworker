@@ -150,7 +150,17 @@ function Shell() {
       setShiftId(ws.shiftId);
       setBackendCounts(ws.counts);
       setActiveShift(ws.shift || null);
-      setData(d => ({...d, ward: ws.ward, workers}));
+      setData(d => {
+        // Adopt the backend's profile photo so the avatar survives a restart,
+        // without clobbering any other locally-held profile fields.
+        const profile = ws.profilePhotoUrl
+          ? {...(d.profile || {name: session.fullName || ''}), photoUri: ws.profilePhotoUrl}
+          : d.profile;
+        return {...d, ward: ws.ward, workers, profile};
+      });
+      if (ws.profilePhotoUrl) {
+        setProfilePhotoUrl(ws.profilePhotoUrl).catch(() => {});
+      }
     } catch (err) {
       // Keep whatever ward we have; the gate still runs against it.
     } finally {
@@ -430,6 +440,51 @@ function Shell() {
     [active, position, data.ward, tr, writeRecord, buildReferenceEmbedding, attnBypass, requestPhoto],
   );
 
+  /* --------------------------------------------------- worker onboarding */
+
+  // A worker created by the IT admin has no reference photo (onboarding_completed
+  // = 0). Before any attendance can be face-matched, the supervisor must capture
+  // one: it is uploaded and saved via /edit-worker, which completes onboarding.
+  const startOnboarding = useCallback(
+    async worker => {
+      const refUri = await requestPhoto(tr('onboardReferenceFor', {name: worker.name}));
+      if (!refUri) {
+        return;
+      }
+      // Confirm a single clear face before uploading anything.
+      let embedding = null;
+      try {
+        const out = await extractFaceEmbedding(refUri);
+        embedding = out.embedding;
+      } catch (err) {
+        Alert.alert(
+          err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
+          faceErrorMessage(err, tr),
+        );
+        return;
+      }
+      const r = await svc.submitWorkerUpdate({
+        supervisorId: session.supervisorId,
+        wardId: data.ward && (data.ward.wardId || data.ward.number),
+        workerId: worker.workerId != null ? worker.workerId : worker.id,
+        email: session.email,
+        photoUri: refUri,
+        referenceUrl: null,
+      });
+      if (r && (r.ok || r.skipped)) {
+        // Cache the embedding so this session can match immediately, and refresh
+        // the roster so onboarding_completed flips to 1.
+        const key = worker.workerId != null ? worker.workerId : worker.id;
+        refCache.current[key] = embedding;
+        Alert.alert(tr('onboardingDone'), tr('onboardingDoneBody', {name: worker.name}));
+        loadBackendWorkspace();
+      } else {
+        Alert.alert(tr('onboardingFailed'), (r && r.message) || '');
+      }
+    },
+    [session, data.ward, tr, requestPhoto, loadBackendWorkspace],
+  );
+
   /* ------------------------------------------------------------ demo data */
 
   const onDemo = useCallback(
@@ -594,6 +649,12 @@ function Shell() {
           onBack={goHome}
           onPick={w => {
             setActive(w);
+            // A worker the IT admin created has no reference photo yet; onboarding
+            // (capture + /edit-worker) must be completed before any attendance.
+            if (w.fromBackend && w.onboardingCompleted === false) {
+              startOnboarding(w);
+              return;
+            }
             // Strict unless the supervisor has chosen to skip the location check.
             if (!attnBypass && fence.state !== 'inside') {
               setBreach({reason: 'outside'});
@@ -722,17 +783,13 @@ function Shell() {
             setScreen('workers');
           }}
           onUpdate={async fields => {
+            // /edit-worker only updates the reference photo — identified by the
+            // editor's email plus the worker id.
             const r = await svc.submitWorkerUpdate({
               supervisorId: session.supervisorId,
               wardId: data.ward && (data.ward.wardId || data.ward.number),
               workerId: fields.workerId,
-              fullName: fields.fullName,
-              relationName: fields.fatherName || '',
-              relation: 'Father',
-              phone: fields.mobile || '',
-              gender: fields.gender || 'Male',
-              designation: fields.designation,
-              dateOfBirth: fields.dateOfBirth || null,
+              email: session.email,
               photoUri: fields.photoUri,
               referenceUrl: fields.referenceUrl,
             });
@@ -751,6 +808,7 @@ function Shell() {
       return (
         <AddLeaveScreen
           workers={data.workers}
+          defaultShift={activeShift ? activeShift.shift_id : shiftId}
           onBack={goHome}
           onSaved={(leaves, worker, detail) => {
             setData(d => ({...d, leaves}));

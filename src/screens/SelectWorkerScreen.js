@@ -163,23 +163,30 @@ export default function SelectWorkerScreen({
         ItemSeparatorComponent={Divider}
         renderItem={({item}) => {
           const {worker, status} = item;
-          const tone =
-            status === 'present'
-              ? 'present'
-              : status === 'leave'
-              ? 'leave'
-              : status === 'absent'
-              ? 'absent'
-              : 'pending';
-          const label =
-            status === 'present'
-              ? tr('present')
-              : status === 'leave'
-              ? tr('onLeave')
-              : status === 'absent'
-              ? tr('absent')
-              : tr('pending');
-          // Only markable while a shift is running.
+          // A backend worker with no reference photo yet (onboarding_completed=0)
+          // must be onboarded before attendance — flag it and route the tap to the
+          // photo-capture flow instead of the mark-attendance camera.
+          const needsOnboarding =
+            worker.onboardingCompleted === false && (status === 'pending' || status === 'absent');
+          const tone = needsOnboarding
+            ? 'warning'
+            : status === 'present'
+            ? 'present'
+            : status === 'leave'
+            ? 'leave'
+            : status === 'absent'
+            ? 'absent'
+            : 'pending';
+          const label = needsOnboarding
+            ? tr('addPhoto')
+            : status === 'present'
+            ? tr('present')
+            : status === 'leave'
+            ? tr('onLeave')
+            : status === 'absent'
+            ? tr('absent')
+            : tr('pending');
+          // Only markable/onboardable while a shift is running.
           const selectable = (status === 'pending' || status === 'absent') && hasOngoing;
           return (
             <Pressable

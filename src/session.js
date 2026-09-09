@@ -118,6 +118,9 @@ export async function loadWorkspace(supervisorId) {
       shiftId,
       ward: wardFromHome(home),
       counts: home.attendance || null,
+      // The supervisor's own profile photo now comes back from the backend, so
+      // the avatar survives a restart without a local copy.
+      profilePhotoUrl: (home.supervisor && home.supervisor.profile_photo_url) || null,
     };
   }
   const ward = await local.getWard();
@@ -137,6 +140,10 @@ export async function loadWorkers(supervisorId, shiftId) {
       photoUri: w.face_reference_photo_url || null,
       referenceUrl: w.face_reference_photo_url || null,
       attendanceStatus: w.attendance_status, // present | pending | on_leave
+      // onboarding_completed = 1 once a supervisor has added the reference photo.
+      // A 0 worker was created by the IT admin and cannot be face-matched until a
+      // reference is captured, so attendance is blocked until onboarding is done.
+      onboardingCompleted: w.onboarding_completed === 1 || w.onboarding_completed === true,
       embedding: null, // built on device from referenceUrl when marking
       fromBackend: true,
     }));
@@ -230,11 +237,13 @@ export async function submitWorker({supervisorId, wardId, photoUri, ...fields}) 
 }
 
 /**
- * Updates an existing worker's details. A new local photo (file://) is uploaded
- * first; an unchanged existing photo (https URL) is kept as-is.
- * payload: {supervisorId, wardId, workerId, referenceUrl, photoUri, ...fields}
+ * Sets/replaces a worker's face reference photo via /edit-worker — the only
+ * worker field a supervisor can change, and the step that completes onboarding
+ * so attendance can be face-matched. A new local photo (file://) is uploaded to
+ * Firebase first; an unchanged https URL is sent as-is.
+ * payload: {supervisorId, wardId, workerId, email, photoUri, referenceUrl}
  */
-export async function submitWorkerUpdate({supervisorId, wardId, workerId, photoUri, referenceUrl, ...fields}) {
+export async function submitWorkerUpdate({supervisorId, wardId, workerId, email, photoUri, referenceUrl}) {
   if (!USE_BACKEND) {
     return {ok: false, skipped: true, message: 'Saved on device'};
   }
@@ -243,7 +252,7 @@ export async function submitWorkerUpdate({supervisorId, wardId, workerId, photoU
     if (photoUri && !/^https?:/i.test(photoUri)) {
       faceReferencePhotoUrl = await uploadWorkerReference(photoUri, {supervisorId, wardId, workerId});
     }
-    const res = await api.updateWorker({...fields, supervisorId, wardId, workerId, faceReferencePhotoUrl});
+    const res = await api.editWorker({email, workerId, faceReferencePhotoUrl});
     return {ok: true, photoUrl: faceReferencePhotoUrl, res};
   } catch (err) {
     return {ok: false, error: err, message: err.message};

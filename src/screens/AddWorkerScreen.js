@@ -77,29 +77,18 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
   };
 
   const save = async () => {
-    if (!name.trim()) {
-      Alert.alert(tr(editing ? 'editWorker' : 'addWorker'), tr('nameRequired'));
-      return;
-    }
-
     if (editing) {
-      // Edit mode: the existing photo is kept unless a new one is captured, and
-      // date of birth is optional (only validated/updated when provided).
-      const iso = dob ? dobToIso(dob) : null;
-      if (dob && !iso) {
-        Alert.alert(tr('editWorker'), tr('dobInvalid'));
+      // Edit mode only saves the reference photo (that is all /edit-worker
+      // accepts). A photo is required — an existing one, or a freshly captured.
+      if (!photo) {
+        Alert.alert(tr('editWorker'), tr('needReferencePhoto'));
         return;
       }
       setBusy(true);
       try {
         await onUpdate({
           workerId: worker.workerId != null ? worker.workerId : worker.id,
-          fullName: name.trim(),
-          fatherName: father.trim(),
-          mobile: mobile.trim(),
-          gender,
-          dateOfBirth: iso,
-          designation,
+          fullName: worker.name,
           photoUri: photo, // https (unchanged) or file:// (newly captured)
           referenceUrl: worker.referenceUrl || null,
         });
@@ -109,6 +98,10 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
       return;
     }
 
+    if (!name.trim()) {
+      Alert.alert(tr('addWorker'), tr('nameRequired'));
+      return;
+    }
     // Add mode: a reference photo and a valid date of birth are required.
     if (!embedding) {
       Alert.alert(tr('addWorker'), tr('needNameAndPhoto'));
@@ -169,40 +162,54 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
           </View>
         </Pressable>
 
-        <Field label={tr('workerName')} value={name} onChangeText={setName} />
-        <Field label={tr('fathersName')} value={father} onChangeText={setFather} />
-        <Field
-          label={tr('mobileNumber')}
-          value={mobile}
-          onChangeText={v => setMobile(v.replace(/\D/g, '').slice(0, 10))}
-          icon="call"
-          keyboardType="phone-pad"
-        />
-        <Field
-          label={tr('gender')}
-          value={genderLabel(gender)}
-          onPress={() => setPicker('gender')}
-          right={<Icon name="expand-more" size={22} />}
-        />
-        <Field
-          label={tr('dateOfBirth')}
-          value={dob}
-          onChangeText={onDobChange}
-          placeholder={tr('dobHint')}
-          icon="cake"
-          keyboardType="number-pad"
-        />
-        <Field
-          label={tr('designation')}
-          value={designation}
-          onPress={() => setPicker('designation')}
-          right={<Icon name="expand-more" size={22} />}
-        />
+        {editing ? (
+          // The reference photo is the only field a supervisor can change; the
+          // rest is read-only context managed by the IT admin.
+          <View style={s.readOnly}>
+            <Text style={s.roName}>{worker.name}</Text>
+            <Text style={t.small}>
+              {designation}
+              {worker.code ? ` · ${worker.code}` : ''}
+            </Text>
+          </View>
+        ) : (
+          <>
+            <Field label={tr('workerName')} value={name} onChangeText={setName} />
+            <Field label={tr('fathersName')} value={father} onChangeText={setFather} />
+            <Field
+              label={tr('mobileNumber')}
+              value={mobile}
+              onChangeText={v => setMobile(v.replace(/\D/g, '').slice(0, 10))}
+              icon="call"
+              keyboardType="phone-pad"
+            />
+            <Field
+              label={tr('gender')}
+              value={genderLabel(gender)}
+              onPress={() => setPicker('gender')}
+              right={<Icon name="expand-more" size={22} />}
+            />
+            <Field
+              label={tr('dateOfBirth')}
+              value={dob}
+              onChangeText={onDobChange}
+              placeholder={tr('dobHint')}
+              icon="cake"
+              keyboardType="number-pad"
+            />
+            <Field
+              label={tr('designation')}
+              value={designation}
+              onPress={() => setPicker('designation')}
+              right={<Icon name="expand-more" size={22} />}
+            />
+          </>
+        )}
 
         <View style={s.noteRow}>
           <Icon name="info-outline" size={19} style={{marginRight: 12, marginTop: 1}} />
           <Text style={[t.bodyMuted, {flex: 1, lineHeight: 20, fontSize: 13.5}]}>
-            {tr(editing ? 'editWorkerNote' : 'oneTimeNote')}
+            {tr(editing ? 'onboardingNote' : 'oneTimeNote')}
           </Text>
         </View>
       </ScrollView>
@@ -266,6 +273,15 @@ const s = StyleSheet.create({
   refTitle: {fontSize: 15.5, fontWeight: '600', color: c.text},
   refHelp: {...t.bodyMuted, fontSize: 13, lineHeight: 19, marginTop: 4},
 
+  readOnly: {
+    backgroundColor: c.bg,
+    borderRadius: r.card,
+    borderWidth: 1,
+    borderColor: c.outlineSoft,
+    padding: 16,
+    marginBottom: 6,
+  },
+  roName: {fontSize: 17, fontWeight: '600', color: c.text, marginBottom: 3},
   noteRow: {flexDirection: 'row', marginTop: 6},
   bottom: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
 

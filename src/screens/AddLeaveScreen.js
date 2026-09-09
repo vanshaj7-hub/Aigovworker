@@ -36,15 +36,17 @@ const pretty = key => {
   return d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
 };
 
-export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
+export default function AddLeaveScreen({workers, onSaved, onBack, preselect, defaultShift}) {
   const {t: tr, lang} = useLang();
   const today = dateKey(new Date());
   const [worker, setWorker] = useState(preselect || null);
   const [type, setType] = useState('casual');
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
-  const [bothShifts, setBothShifts] = useState(true);
-  const [shift, setShift] = useState(1);
+  // Default to a single shift: leave applies only to the chosen shift, leaving
+  // the other shift open for attendance. "Both shifts" is an explicit opt-in.
+  const [bothShifts, setBothShifts] = useState(false);
+  const [shift, setShift] = useState(defaultShift === 2 ? 2 : 1);
   const [remarks, setRemarks] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dateTarget, setDateTarget] = useState(null);
@@ -160,7 +162,11 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
 
         <View style={{paddingHorizontal: 16, marginTop: 18}}>
           <Field label={tr('remarks')} value={remarks} onChangeText={setRemarks} multiline />
-          <Banner tone="info" icon="info-outline" body={tr('leaveNote')} />
+          <Banner
+            tone="info"
+            icon="info-outline"
+            body={bothShifts ? tr('leaveNoteBoth') : tr('leaveNoteShift')}
+          />
         </View>
       </ScrollView>
 

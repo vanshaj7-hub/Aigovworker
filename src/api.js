@@ -170,34 +170,16 @@ export const addWorker = ({
     face_reference_photo_url: faceReferencePhotoUrl,
   });
 
-/* ------------------------------------------------------------ 8b update worker */
-// NOTE: endpoint path/shape is a best guess mirroring /add-worker plus worker_id,
-// pending the real /update-worker endpoint from the backend team.
-export const updateWorker = ({
-  workerId,
-  fullName,
-  relationName,
-  relation,
-  phone,
-  gender,
-  dateOfBirth,
-  designation,
-  wardId,
-  supervisorId,
-  faceReferencePhotoUrl,
-}) =>
-  post('/update-worker', {
+/* -------------------------------------------------------------- 8b edit worker */
+// /edit-worker lets the supervisor (or IT admin) attach/replace a worker's face
+// reference photo — the only worker field a supervisor can change. `email`
+// identifies who is making the edit; `face_reference_photo_url` is optional but
+// is the whole point of the call for a supervisor onboarding a worker.
+export const editWorker = ({email, workerId, faceReferencePhotoUrl}) =>
+  post('/edit-worker', {
+    email: String(email || '').trim(),
     worker_id: workerId,
-    full_name: fullName,
-    relation_name: relationName,
-    relation,
-    phone: String(phone || '').replace(/\D/g, ''),
-    gender,
-    date_of_birth: dateOfBirth || null,
-    designation,
-    ward_code: wardId,
-    supervisor_id: supervisorId,
-    face_reference_photo_url: faceReferencePhotoUrl,
+    face_reference_photo_url: faceReferencePhotoUrl || null,
   });
 
 /* ---------------------------------------------------------------- 9 add leave */

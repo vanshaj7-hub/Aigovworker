@@ -2,7 +2,7 @@ import React from 'react';
 import {FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
-import {AppBar, Avatar, BottomBar, Divider, EmptyState, FilledButton, Icon, Screen} from '../ui';
+import {AppBar, Avatar, BottomBar, Divider, EmptyState, FilledButton, Icon, Screen, StatusPill} from '../ui';
 import {localizeDesignation, localizeWorkerName} from '../localize';
 
 /**
@@ -35,6 +35,9 @@ export default function WorkerListScreen({workers, onEdit, onAdd, onBack}) {
                 {w.code ? ` · ${w.code}` : ''}
               </Text>
             </View>
+            {w.onboardingCompleted === false ? (
+              <StatusPill label={tr('addPhoto')} tone="warning" style={{marginRight: 8}} />
+            ) : null}
             <Icon name="edit" size={20} color={c.textMuted} />
           </Pressable>
         )}
