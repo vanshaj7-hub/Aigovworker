@@ -5,6 +5,14 @@
 const R = 6371000; // metres
 const rad = deg => (deg * Math.PI) / 180;
 
+// A fixed tolerance around the ward boundary: a device within this many metres
+// of the polygon edge counts as inside, absorbing normal GPS drift near the
+// perimeter. (Requested behaviour: "within 100 m of the boundary is inside".)
+export const EDGE_BUFFER_M = 100;
+// The fix's own reported accuracy widens the tolerance a little more, but is
+// capped so a wildly inaccurate reading cannot silently void the fence.
+const ACCURACY_SLACK_CAP = 60;
+
 export function distanceMetres(a, b) {
   if (!a || !b) {
     return null;
@@ -108,21 +116,27 @@ export function distanceToPolygonMetres(point, ring) {
  * `distance` is 0 inside a polygon, else the distance to the boundary/centre;
  * `overshoot` is how far beyond the boundary the device is, in metres.
  *
- * Polygon wards use a point-in-polygon test, with `radiusM` acting as a small
- * tolerance buffer around the boundary to absorb GPS inaccuracy.
+ * Polygon wards use a point-in-polygon test with a tolerance buffer of at least
+ * EDGE_BUFFER_M (100 m) around the boundary — widened by the fix's own reported
+ * accuracy (capped) — so a device just outside the edge, or a noisy fix, is not
+ * wrongly rejected.
  */
 export function evaluateFence(position, ward) {
   if (!position) {
     return {state: 'unknown', distance: null, overshoot: null};
   }
 
-  // Preferred: polygon boundary.
+  const acc = Number.isFinite(position.accuracy) ? position.accuracy : 0;
+  const slack = Math.min(acc, ACCURACY_SLACK_CAP);
+
+  // Preferred: polygon boundary. Inside the polygon, or within the 100 m buffer
+  // (plus a little GPS slack) of its edge, counts as inside the ward.
   if (ward && ward.polygon && ward.polygon.length >= 3) {
+    const buffer = Math.max(ward.radiusM || 0, EDGE_BUFFER_M) + slack;
     if (pointInPolygon(position, ward.polygon)) {
       return {state: 'inside', distance: 0, overshoot: 0};
     }
     const dist = distanceToPolygonMetres(position, ward.polygon);
-    const buffer = ward.radiusM || 0; // tolerance for GPS drift at the edge
     if (dist <= buffer) {
       return {state: 'inside', distance: dist, overshoot: 0, buffered: true};
     }
@@ -135,7 +149,7 @@ export function evaluateFence(position, ward) {
     return {state: 'inside', distance: null, overshoot: null, unprovisioned: true};
   }
   const d = distanceMetres(position, ward.center);
-  const radius = ward.radiusM || 800;
+  const radius = (ward.radiusM || 800) + slack;
   return {
     state: d <= radius ? 'inside' : 'outside',
     distance: d,

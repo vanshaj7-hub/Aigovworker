@@ -31,6 +31,14 @@ export function shiftWindowState(shift, now = new Date()) {
   return 'closed';
 }
 
+/**
+ * The shift that is actually running right now, or null in the gaps between
+ * shifts. Attendance may only be marked while a shift is ongoing.
+ */
+export function ongoingShift(now = new Date()) {
+  return SHIFTS.find(s => shiftWindowState(s, now) === 'open') || null;
+}
+
 /** The shift a supervisor is most likely to be marking right now. */
 export function currentShift(now = new Date()) {
   const open = SHIFTS.find(s => shiftWindowState(s, now) === 'open');

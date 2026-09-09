@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {FlatList, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
@@ -14,7 +14,7 @@ import {
   SegmentPill,
   StatusPill,
 } from '../ui';
-import {dateKey, resolveStatus, shiftLabel} from '../domain/shifts';
+import {dateKey, resolveStatus} from '../domain/shifts';
 import {formatDistance} from '../domain/geo';
 import {localizeDesignation, localizeWorkerName} from '../localize';
 
@@ -26,13 +26,25 @@ export default function SelectWorkerScreen({
   fence,
   shiftId,
   setShiftId,
+  ongoingShiftId,
   onPick,
   onBack,
 }) {
-  const {t: tr} = useLang();
+  const {t: tr, lang} = useLang();
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const dk = dateKey(new Date());
+
+  // Attendance may only be marked while a shift the backend reports as open is
+  // running. Between shifts `ongoingShiftId` is null and marking is closed.
+  const hasOngoing = ongoingShiftId != null;
+
+  // Pin the selected shift to whichever one is running right now.
+  useEffect(() => {
+    if (hasOngoing && shiftId !== ongoingShiftId) {
+      setShiftId(ongoingShiftId);
+    }
+  }, [ongoingShiftId, hasOngoing, shiftId, setShiftId]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -66,9 +78,13 @@ export default function SelectWorkerScreen({
       : fence.state === 'outside'
       ? tr('outsideGeofenceTitle')
       : tr('locatingTitle');
+  // A very wide accuracy circle means the fix cannot be trusted for the fence.
+  const poorAccuracy = fence.accuracy != null && fence.accuracy > 100;
   const fenceBody =
     fence.state === 'outside'
       ? tr('distanceOutside', {d: formatDistance(fence.overshoot)})
+      : poorAccuracy
+      ? tr('accuracyPoor', {m: Math.round(fence.accuracy)})
       : fence.accuracy != null
       ? tr('accuracyLocked', {m: Math.round(fence.accuracy)})
       : tr('accuracySearching');
@@ -103,24 +119,35 @@ export default function SelectWorkerScreen({
           label={tr('shift1')}
           icon="wb-sunny"
           selected={shiftId === 1}
-          onPress={() => setShiftId(1)}
+          disabled={!hasOngoing || ongoingShiftId !== 1}
+          onPress={() => hasOngoing && ongoingShiftId === 1 && setShiftId(1)}
           style={{marginRight: 10}}
         />
         <SegmentPill
           label={tr('shift2')}
           icon="wb-twilight"
           selected={shiftId === 2}
-          onPress={() => setShiftId(2)}
+          disabled={!hasOngoing || ongoingShiftId !== 2}
+          onPress={() => hasOngoing && ongoingShiftId === 2 && setShiftId(2)}
         />
       </View>
 
       <View style={{paddingHorizontal: 16}}>
-        <Banner
-          tone={fenceTone}
-          icon={fence.state === 'outside' ? 'wrong-location' : 'my-location'}
-          title={fenceTitle}
-          body={fenceBody}
-        />
+        {hasOngoing ? (
+          <Banner
+            tone={fenceTone}
+            icon={fence.state === 'outside' ? 'wrong-location' : 'my-location'}
+            title={fenceTitle}
+            body={fenceBody}
+          />
+        ) : (
+          <Banner
+            tone="warning"
+            icon="schedule"
+            title={tr('noOngoingShift')}
+            body={tr('shiftHoursBody')}
+          />
+        )}
       </View>
 
       <SectionLabel
@@ -152,15 +179,16 @@ export default function SelectWorkerScreen({
               : status === 'absent'
               ? tr('absent')
               : tr('pending');
-          const selectable = status === 'pending' || status === 'absent';
+          // Only markable while a shift is running.
+          const selectable = (status === 'pending' || status === 'absent') && hasOngoing;
           return (
             <Pressable
               onPress={() => selectable && onPick(worker)}
               android_ripple={{color: '#00000010'}}
               style={s.row}>
-              <Avatar name={localizeWorkerName(worker.name, tr)} uri={worker.photoUri} size={44} />
+              <Avatar name={localizeWorkerName(worker.name, tr, lang)} uri={worker.photoUri} size={44} />
               <View style={{flex: 1, marginLeft: 14}}>
-                <Text style={s.rowName}>{localizeWorkerName(worker.name, tr)}</Text>
+                <Text style={s.rowName}>{localizeWorkerName(worker.name, tr, lang)}</Text>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
                   <Text style={t.small}>
                     {localizeDesignation(worker.designation, tr)} · {worker.code}

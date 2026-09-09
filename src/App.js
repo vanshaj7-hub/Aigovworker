@@ -18,9 +18,9 @@ import {
   setWardCentre,
   signOut as clearSession,
 } from './storage';
-import {getLocation, requestPermissions, watchLocation} from './device';
+import {getBestLocation, getLocation, requestPermissions, watchLocation} from './device';
 import {evaluateFence} from './domain/geo';
-import {currentShift, dateKey} from './domain/shifts';
+import {currentShift, dateKey, ongoingShift} from './domain/shifts';
 import {isDemoWorker} from './demo';
 import {USE_BACKEND} from './config';
 import * as svc from './session';
@@ -75,6 +75,10 @@ function Shell() {
   // The worker being edited in the add/edit form (null = adding a new worker).
   const [editWorker, setEditWorker] = useState(null);
   const [backendCounts, setBackendCounts] = useState(null);
+  // The shift the backend reports as currently open (or null between shifts).
+  // Attendance may only be marked while a shift is ongoing — and the backend,
+  // not the app's local clock, is the authority on the shift windows.
+  const [activeShift, setActiveShift] = useState(null);
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
   const refCache = useRef({});
@@ -106,7 +110,7 @@ function Shell() {
     if (!session) {
       return undefined;
     }
-    getLocation().then(p => p && alive.current && setPosition(p));
+    getBestLocation().then(p => p && alive.current && setPosition(p));
     const stop = watchLocation(p => alive.current && setPosition(p));
     return () => stop();
   }, [session]);
@@ -145,6 +149,7 @@ function Shell() {
       const workers = await svc.loadWorkers(supId, ws.shiftId);
       setShiftId(ws.shiftId);
       setBackendCounts(ws.counts);
+      setActiveShift(ws.shift || null);
       setData(d => ({...d, ward: ws.ward, workers}));
     } catch (err) {
       // Keep whatever ward we have; the gate still runs against it.
@@ -314,7 +319,9 @@ function Shell() {
 
       // 1. Location before anything else. Strict: attendance is blocked unless
       // the device is confirmed inside the ward (outside, or no fix, both stop).
-      const fix = (await getLocation({timeout: 8000})) || position;
+      // getBestLocation samples for the most accurate fix rather than accepting a
+      // stale coarse one, which is what made a genuinely-inside device read outside.
+      const fix = (await getBestLocation({window: 6000})) || position;
       const f = evaluateFence(fix, data.ward);
       if (!attnBypass && f.state !== 'inside') {
         setPosition(fix || position);
@@ -402,7 +409,7 @@ function Shell() {
 
       // 4. Location again — strict: the device may have moved while the face was
       // processed, so re-confirm it is still inside the ward.
-      const afterFix = (await getLocation({timeout: 8000})) || fix;
+      const afterFix = (await getBestLocation({window: 5000})) || fix;
       const afterFence = evaluateFence(afterFix, data.ward);
       if (!attnBypass && afterFence.state !== 'inside') {
         setPosition(afterFix);
@@ -575,6 +582,15 @@ function Shell() {
           fence={fence}
           shiftId={shiftId}
           setShiftId={setShiftId}
+          ongoingShiftId={
+            USE_BACKEND
+              ? activeShift
+                ? activeShift.shift_id
+                : null
+              : ongoingShift()
+              ? ongoingShift().id
+              : null
+          }
           onBack={goHome}
           onPick={w => {
             setActive(w);
@@ -632,7 +648,7 @@ function Shell() {
             setScreen(active ? 'capture' : 'attendance');
           }}
           onRetry={async () => {
-            const p = await getLocation({timeout: 10000});
+            const p = await getBestLocation({window: 8000});
             if (p) {
               setPosition(p);
             }
@@ -807,13 +823,15 @@ function Shell() {
               setShowPasswordChange(false);
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
+              setActiveShift(null);
               setProfileSkipped(false);
               setAttnBypass(false);
               setFailed({});
               return;
             }
             if (target === 'attendance') {
-              setShiftId(currentShift().id);
+              // Open on the shift the backend reports as running (if any).
+              setShiftId(activeShift ? activeShift.shift_id : currentShift().id);
             }
             // Re-pull the roster (with each worker's reference photo) whenever
             // entering attendance or the worker-management list.

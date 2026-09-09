@@ -1,10 +1,22 @@
-// Localizes worker display text that arrives from the backend. Real proper
-// names pass through unchanged; the "Worker N" placeholder pattern and a few
-// known designations are translated so the roster reads in the chosen language.
+// Localizes worker display text that arrives from the backend. The "Worker N"
+// placeholder pattern and a few known designations map to their translated
+// strings; real proper names are phonetically transliterated to Devanagari when
+// the language is Hindi so the roster reads in the chosen script.
 
-export function localizeWorkerName(name, tr) {
-  const m = /^worker\s+(\d+)$/i.exec(String(name || '').trim());
-  return m ? tr('workerN', {n: m[1]}) : name;
+import {latinToDevanagari} from './domain/translit';
+
+export function localizeWorkerName(name, tr, lang) {
+  const raw = String(name || '').trim();
+  const m = /^worker\s+(\d+)$/i.exec(raw);
+  if (m) {
+    return tr('workerN', {n: m[1]});
+  }
+  // Names come from the backend in Roman script; render them in Devanagari when
+  // the interface is Hindi. Anything already in Devanagari is left untouched.
+  if (lang === 'hi' && /[A-Za-z]/.test(raw)) {
+    return latinToDevanagari(raw);
+  }
+  return name;
 }
 
 const DESIGNATION_KEYS = {

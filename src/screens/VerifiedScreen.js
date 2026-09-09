@@ -4,6 +4,7 @@ import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {BottomBar, FilledButton, Icon, Screen, StatusPill, TextButton} from '../ui';
 import {clockTime, shiftLabel, shiftRange} from '../domain/shifts';
+import {formatDistance} from '../domain/geo';
 import {localizeWorkerName} from '../localize';
 
 function Row({label, value, valueColor, icon, last}) {
@@ -36,9 +37,12 @@ function Thumb({uri, caption, fallbackIcon}) {
 }
 
 export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
-  const {t: tr} = useLang();
+  const {t: tr, lang} = useLang();
   const verified = record.verified !== false;
   const pct = Math.round((record.matchScore || 0) * 100);
+  // Reflect what was actually recorded (and sent to the backend), so the success
+  // screen never claims "inside" for a mark stored as outside the geo-fence.
+  const inside = record.insideGeofence !== false;
 
   return (
     <Screen bg={c.surface}>
@@ -73,7 +77,7 @@ export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
           </View>
 
           <View style={s.table}>
-            <Row label={tr('worker')} value={localizeWorkerName(worker.name, tr)} />
+            <Row label={tr('worker')} value={localizeWorkerName(worker.name, tr, lang)} />
             <Row label={tr('ward')} value={ward.name} />
             <Row
               label={tr('shift')}
@@ -82,9 +86,15 @@ export default function VerifiedScreen({record, worker, ward, onNext, onHome}) {
             <Row label={tr('capturedAt')} value={clockTime(record.capturedAt)} />
             <Row
               label={tr('location')}
-              value={tr('insideGeofenceTitle')}
-              valueColor={c.onSuccessContainer}
-              icon="check-circle"
+              value={
+                inside
+                  ? tr('insideGeofenceTitle')
+                  : record.distanceM != null
+                  ? tr('outsideByDistance', {d: formatDistance(record.distanceM)})
+                  : tr('outsideGeofenceTitle')
+              }
+              valueColor={inside ? c.onSuccessContainer : c.warningStrong}
+              icon={inside ? 'check-circle' : 'wrong-location'}
               last
             />
           </View>

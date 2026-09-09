@@ -10,7 +10,7 @@ import {localizeDesignation, localizeWorkerName} from '../localize';
  * button at the bottom to add a new worker.
  */
 export default function WorkerListScreen({workers, onEdit, onAdd, onBack}) {
-  const {t: tr} = useLang();
+  const {t: tr, lang} = useLang();
   return (
     <Screen bg={c.surface}>
       <AppBar title={tr('manageWorkers')} onBack={onBack} />
@@ -27,9 +27,9 @@ export default function WorkerListScreen({workers, onEdit, onAdd, onBack}) {
             onPress={() => onEdit(w)}
             android_ripple={{color: '#00000010'}}
             style={s.row}>
-            <Avatar name={localizeWorkerName(w.name, tr)} uri={w.photoUri} size={44} />
+            <Avatar name={localizeWorkerName(w.name, tr, lang)} uri={w.photoUri} size={44} />
             <View style={{flex: 1, marginLeft: 14}}>
-              <Text style={s.name}>{localizeWorkerName(w.name, tr)}</Text>
+              <Text style={s.name}>{localizeWorkerName(w.name, tr, lang)}</Text>
               <Text style={t.small}>
                 {localizeDesignation(w.designation, tr)}
                 {w.code ? ` · ${w.code}` : ''}

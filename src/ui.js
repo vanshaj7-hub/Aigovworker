@@ -194,12 +194,13 @@ export function FilterChip({label, selected, onPress, icon, style}) {
 }
 
 /** Large segmented pills used for the shift picker. */
-export function SegmentPill({label, icon, selected, onPress, style}) {
+export function SegmentPill({label, icon, selected, onPress, style, disabled}) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       android_ripple={{color: '#00000010'}}
-      style={[s.segment, selected ? s.segmentOn : s.segmentOff, style]}>
+      style={[s.segment, selected ? s.segmentOn : s.segmentOff, disabled && {opacity: 0.4}, style]}>
       <Icon name={icon} size={19} color={selected ? '#fff' : c.textMuted} style={{marginRight: 8}} />
       <Text style={[s.segmentLabel, selected && {color: '#fff'}]}>{label}</Text>
     </Pressable>

@@ -37,7 +37,7 @@ const pretty = key => {
 };
 
 export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
-  const {t: tr} = useLang();
+  const {t: tr, lang} = useLang();
   const today = dateKey(new Date());
   const [worker, setWorker] = useState(preselect || null);
   const [type, setType] = useState('casual');
@@ -86,9 +86,9 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
         <Pressable onPress={() => setPickerOpen(true)} style={s.workerCard}>
           {worker ? (
             <>
-              <Avatar name={localizeWorkerName(worker.name, tr)} uri={worker.photoUri} size={44} />
+              <Avatar name={localizeWorkerName(worker.name, tr, lang)} uri={worker.photoUri} size={44} />
               <View style={{flex: 1, marginLeft: 14}}>
-                <Text style={s.workerName}>{localizeWorkerName(worker.name, tr)}</Text>
+                <Text style={s.workerName}>{localizeWorkerName(worker.name, tr, lang)}</Text>
                 <Text style={t.small}>
                   {worker.designation} · {worker.code}
                 </Text>
@@ -181,9 +181,9 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect}) {
                     setPickerOpen(false);
                   }}
                   style={s.sheetRow}>
-                  <Avatar name={localizeWorkerName(w.name, tr)} uri={w.photoUri} size={38} />
+                  <Avatar name={localizeWorkerName(w.name, tr, lang)} uri={w.photoUri} size={38} />
                   <View style={{flex: 1, marginLeft: 12}}>
-                    <Text style={[t.body, {fontSize: 15.5, fontWeight: '600'}]}>{localizeWorkerName(w.name, tr)}</Text>
+                    <Text style={[t.body, {fontSize: 15.5, fontWeight: '600'}]}>{localizeWorkerName(w.name, tr, lang)}</Text>
                     <Text style={t.small}>{w.code}</Text>
                   </View>
                   {worker && worker.id === w.id ? (
