@@ -1,6 +1,51 @@
 import {Linking, PermissionsAndroid, Platform} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
+import {Camera} from 'react-native-vision-camera';
 import {launchImageLibrary} from 'react-native-image-picker';
+
+/**
+ * Ensures camera access before a capture screen is opened. Requests it if it has
+ * never been asked; resolves false if the user has blocked it (so the caller can
+ * show a prompt instead of opening a dead camera view).
+ */
+export async function ensureCameraPermission() {
+  try {
+    let status = Camera.getCameraPermissionStatus();
+    if (status !== 'granted') {
+      status = await Camera.requestCameraPermission();
+    }
+    return status === 'granted';
+  } catch (e) {
+    return true; // never hard-block if the check itself fails
+  }
+}
+
+/**
+ * Resolves false only when device location is actually unavailable — the OS
+ * location/GPS switch is off (error code 2) or the permission is denied (code 1).
+ * A slow fix (timeout) resolves true so we don't false-alarm while acquiring.
+ */
+export function checkLocationEnabled({timeout = 5000} = {}) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => {
+      if (!done) {
+        done = true;
+        resolve(v);
+      }
+    };
+    try {
+      Geolocation.getCurrentPosition(
+        () => finish(true),
+        err => finish(!(err && (err.code === 1 || err.code === 2))),
+        {enableHighAccuracy: false, timeout, maximumAge: 0},
+      );
+    } catch (e) {
+      finish(true);
+    }
+    setTimeout(() => finish(true), timeout + 500);
+  });
+}
 
 /** Opens the OS location/GPS settings so the user can turn location on. */
 export function openLocationSettings() {

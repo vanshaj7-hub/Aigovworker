@@ -16,10 +16,11 @@ import {
   sampleRGB,
 } from './domain/faceMath';
 
-// Cosine similarity above which two embeddings are treated as the same person.
-// With aligned crops and flip-averaged embeddings, genuine pairs sit comfortably
-// above this and different people well below it.
-export const MATCH_THRESHOLD = 0.55;
+// Cosine similarity above which two embeddings are treated as the same person,
+// i.e. an 85% match is required. This is deliberately strict: it rules out
+// look-alikes, but genuine captures under very different lighting/angle from the
+// reference may occasionally fall short and need a retake.
+export const MATCH_THRESHOLD = 0.85;
 
 // Resolution of the intermediate square crop we decode and sample from. Larger
 // than the model input so the alignment resampling has detail to work with.

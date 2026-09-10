@@ -16,7 +16,16 @@ import {
   setWardCentre,
   signOut as clearSession,
 } from './storage';
-import {getBestLocation, getLocation, openLocationSettings, requestPermissions, watchLocation} from './device';
+import {
+  checkLocationEnabled,
+  ensureCameraPermission,
+  getBestLocation,
+  getLocation,
+  openAppSettings,
+  openLocationSettings,
+  requestPermissions,
+  watchLocation,
+} from './device';
 import {FilledButton, Icon} from './ui';
 import {evaluateFence} from './domain/geo';
 import {currentShift, dateKey, ongoingShift} from './domain/shifts';
@@ -264,10 +273,33 @@ function Shell() {
 
   /* ------------------------------------------------- shared photo capture */
 
+  // Popups for the two hardware/OS prerequisites, reused across the app.
+  const promptEnableLocation = useCallback(() => {
+    Alert.alert(tr('locationOffTitle'), tr('locationOffBody'), [
+      {text: tr('cancel'), style: 'cancel'},
+      {text: tr('openSettings'), onPress: openLocationSettings},
+    ]);
+  }, [tr]);
+
+  const promptCameraBlocked = useCallback(() => {
+    Alert.alert(tr('cameraDenied'), tr('cameraBlockedBody'), [
+      {text: tr('cancel'), style: 'cancel'},
+      {text: tr('openSettings'), onPress: openAppSettings},
+    ]);
+  }, [tr]);
+
   // Used by the profile screen and worker onboarding; resolves with a file URI.
+  // Confirms camera access first — if it is blocked, prompt instead of opening a
+  // dead camera view.
   const requestPhoto = useCallback(
-    title => new Promise(resolve => setPhotoRequest({title, resolve})),
-    [],
+    async title => {
+      if (!(await ensureCameraPermission())) {
+        promptCameraBlocked();
+        return null;
+      }
+      return new Promise(resolve => setPhotoRequest({title, resolve}));
+    },
+    [promptCameraBlocked],
   );
 
   // Builds (and caches) a worker's reference face embedding from their stored
@@ -675,7 +707,7 @@ function Shell() {
           ongoingShiftId={activeShiftId}
           loading={showSkeleton}
           onBack={goHome}
-          onPick={w => {
+          onPick={async w => {
             setActive(w);
             // A worker the IT admin created has no reference photo yet; onboarding
             // (capture + /edit-worker) must be completed before any attendance.
@@ -683,8 +715,19 @@ function Shell() {
               startOnboarding(w);
               return;
             }
+            // Camera must be available before opening the capture screen.
+            if (!(await ensureCameraPermission())) {
+              promptCameraBlocked();
+              return;
+            }
             // Strict unless the supervisor has chosen to skip the location check.
             if (!attnBypass && fence.state !== 'inside') {
+              // No location at all almost always means location/GPS is off —
+              // prompt to turn it on rather than showing "outside the ward".
+              if (!fence.position) {
+                promptEnableLocation();
+                return;
+              }
               setBreach({reason: 'outside'});
               setScreen('breach');
               return;
@@ -931,6 +974,13 @@ function Shell() {
             if (target === 'attendance') {
               // Open on the shift the backend reports as running (if any).
               setShiftId(activeShift ? activeShift.shift_id : currentShift().id);
+              // Prompt straight away if location is switched off, so the supervisor
+              // fixes it before trying to mark.
+              checkLocationEnabled().then(ok => {
+                if (!ok && alive.current) {
+                  promptEnableLocation();
+                }
+              });
             }
             // Re-pull the roster (with each worker's reference photo) whenever
             // entering attendance or the worker-management list.
