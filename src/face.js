@@ -5,37 +5,48 @@ import RNFS from 'react-native-fs';
 import {decode as decodeJpeg} from 'jpeg-js';
 import {toByteArray} from 'base64-js';
 import {loadTensorflowModel} from 'react-native-fast-tflite';
+import {
+  OUT,
+  bboxInverseMap,
+  computeSquareCrop,
+  cosineSimilarity as cosine,
+  eyeAlignInverseMap,
+  flipTensorH,
+  l2normalize,
+  sampleRGB,
+} from './domain/faceMath';
 
 // Cosine similarity above which two embeddings are treated as the same person.
-// MobileFaceNet genuine pairs typically score > 0.6; impostors < 0.35.
+// With aligned crops and flip-averaged embeddings, genuine pairs sit comfortably
+// above this and different people well below it.
 export const MATCH_THRESHOLD = 0.55;
 
-const FACE_MARGIN = 0.2;
+// Resolution of the intermediate square crop we decode and sample from. Larger
+// than the model input so the alignment resampling has detail to work with.
+const DECODE = 256;
+
+export const cosineSimilarity = cosine;
 
 let modelPromise = null;
 
 export function getModel() {
   if (!modelPromise) {
-    modelPromise = loadTensorflowModel(
-      require('./assets/mobile_face_net.tflite'),
-    );
+    modelPromise = loadTensorflowModel(require('./assets/mobile_face_net.tflite'));
   }
   return modelPromise;
 }
 
 function getImageSize(uri) {
   return new Promise((resolve, reject) => {
-    Image.getSize(
-      uri,
-      (width, height) => resolve({width, height}),
-      reject,
-    );
+    Image.getSize(uri, (width, height) => resolve({width, height}), reject);
   });
 }
 
+/** Detect faces (with landmarks) and return the single prominent one. */
 async function pickProminentFace(photoUri) {
   const faces = await FaceDetection.detect(photoUri, {
     performanceMode: 'accurate',
+    landmarkMode: 'all',
     minFaceSize: 0.1,
   });
   if (!faces || faces.length === 0) {
@@ -54,83 +65,85 @@ async function pickProminentFace(photoUri) {
   return byArea[0];
 }
 
-function l2normalize(vec) {
-  let norm = 0;
-  for (const v of vec) {
-    norm += v * v;
-  }
-  norm = Math.sqrt(norm) || 1;
-  return vec.map(v => v / norm);
-}
-
-export function cosineSimilarity(a, b) {
-  const n = Math.min(a.length, b.length);
-  let dot = 0;
-  for (let i = 0; i < n; i++) {
-    dot += a[i] * b[i];
-  }
-  return dot;
+/** Run the model on a HWC [-1,1] tensor and return the raw output vector. */
+function embed(model, tensor) {
+  return Array.from(model.runSync([tensor])[0]);
 }
 
 /**
- * Full pipeline: detect the prominent face in the photo, crop it with a
- * margin, resize to the model input size, and return the L2-normalized
- * embedding plus the cropped face thumbnail URI.
+ * Full pipeline: detect the prominent face, align it by its eyes onto the
+ * canonical template (falling back to the bounding box when landmarks are
+ * missing), resample to the model input with bilinear filtering, and return the
+ * L2-normalized embedding averaged with its horizontal mirror for robustness.
+ * Also returns a square face crop URI for display.
  */
 export async function extractFaceEmbedding(photoUri) {
   const model = await getModel();
-  const inputShape = model.inputs[0].shape; // e.g. [1, 112, 112, 3]
-  const inputH = inputShape[1];
-  const inputW = inputShape[2];
-
   const face = await pickProminentFace(photoUri);
   const {width: imgW, height: imgH} = await getImageSize(photoUri);
 
-  const f = face.frame;
-  const marginX = f.width * FACE_MARGIN;
-  const marginY = f.height * FACE_MARGIN;
-  const x = Math.max(0, Math.round(f.left - marginX));
-  const y = Math.max(0, Math.round(f.top - marginY));
-  const w = Math.min(imgW - x, Math.round(f.width + marginX * 2));
-  const h = Math.min(imgH - y, Math.round(f.height + marginY * 2));
-  if (w <= 0 || h <= 0) {
+  const {x: cropX, y: cropY, size: cropSize} = computeSquareCrop(face.frame, imgW, imgH);
+  if (cropSize < 8) {
     throw new Error('NO_FACE');
   }
 
   const crop = await ImageEditor.cropImage(photoUri, {
-    offset: {x, y},
-    size: {width: w, height: h},
-    displaySize: {width: inputW, height: inputH},
-    resizeMode: 'stretch',
+    offset: {x: cropX, y: cropY},
+    size: {width: cropSize, height: cropSize},
+    displaySize: {width: DECODE, height: DECODE},
+    resizeMode: 'cover',
     format: 'jpeg',
-    quality: 0.95,
+    quality: 0.98,
   });
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
   const base64 = await RNFS.readFile(cropUri, 'base64');
-  const jpegBytes = toByteArray(base64);
-  const {width: dw, height: dh, data} = decodeJpeg(jpegBytes, {
-    useTArray: true,
-  });
+  const {width: dw, height: dh, data} = decodeJpeg(toByteArray(base64), {useTArray: true});
 
-  // RGBA -> normalized RGB float tensor, nearest-neighbor sampled if the
-  // decoded size differs from the model input size.
-  const input = new Float32Array(inputW * inputH * 3);
-  for (let py = 0; py < inputH; py++) {
-    const sy = dh === inputH ? py : Math.min(dh - 1, Math.floor((py * dh) / inputH));
-    for (let px = 0; px < inputW; px++) {
-      const sx = dw === inputW ? px : Math.min(dw - 1, Math.floor((px * dw) / inputW));
-      const si = (sy * dw + sx) * 4;
-      const di = (py * inputW + px) * 3;
-      input[di] = (data[si] - 127.5) / 127.5;
-      input[di + 1] = (data[si + 1] - 127.5) / 127.5;
-      input[di + 2] = (data[si + 2] - 127.5) / 127.5;
+  // original px -> decoded crop px (use the real decoded dims, not the request).
+  const scaleX = dw / cropSize;
+  const scaleY = dh / cropSize;
+  const lm = face.landmarks || {};
+  const le = lm.leftEye && lm.leftEye.position;
+  const re = lm.rightEye && lm.rightEye.position;
+
+  let mapFn;
+  if (le && re) {
+    // Eye points in decoded-crop coordinates. Order them by image position
+    // (left-most eye -> left template point) rather than ML Kit's subject-relative
+    // left/right naming, so the aligned face keeps its true orientation.
+    const a = {x: (le.x - cropX) * scaleX, y: (le.y - cropY) * scaleY};
+    const b = {x: (re.x - cropX) * scaleX, y: (re.y - cropY) * scaleY};
+    const [imgLeft, imgRight] = a.x <= b.x ? [a, b] : [b, a];
+    mapFn = eyeAlignInverseMap(imgLeft, imgRight);
+  } else {
+    mapFn = bboxInverseMap({
+      x: (face.frame.left - cropX) * scaleX,
+      y: (face.frame.top - cropY) * scaleY,
+      w: face.frame.width * scaleX,
+      h: face.frame.height * scaleY,
+    });
+  }
+
+  // Build the aligned [-1,1] RGB tensor.
+  const input = new Float32Array(OUT * OUT * 3);
+  for (let oy = 0; oy < OUT; oy++) {
+    for (let ox = 0; ox < OUT; ox++) {
+      const [sx, sy] = mapFn(ox, oy);
+      const [r, g, b] = sampleRGB(data, dw, dh, sx, sy);
+      const di = (oy * OUT + ox) * 3;
+      input[di] = (r - 127.5) / 127.5;
+      input[di + 1] = (g - 127.5) / 127.5;
+      input[di + 2] = (b - 127.5) / 127.5;
     }
   }
 
-  const outputs = model.runSync([input]);
-  const embedding = l2normalize(Array.from(outputs[0]));
-  return {embedding, faceUri: cropUri};
+  // Average the embedding with its horizontal mirror (test-time augmentation) —
+  // a cheap, standard way to get a more stable face representation.
+  const e1 = embed(model, input);
+  const e2 = embed(model, flipTensorH(input, OUT, OUT, 3));
+  const avg = e1.map((v, i) => (v + e2[i]) / 2);
+  return {embedding: l2normalize(avg), faceUri: cropUri};
 }
 
 export function faceErrorMessage(err, tr) {
