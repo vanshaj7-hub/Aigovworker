@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
@@ -18,7 +18,7 @@ import {
   Switch,
 } from '../ui';
 import {addLeave} from '../storage';
-import {dateKey} from '../domain/shifts';
+import {dateKey, getShift, shiftWindowState} from '../domain/shifts';
 import {localizeWorkerName} from '../localize';
 import DatePickerSheet from '../DatePickerSheet';
 
@@ -36,7 +36,7 @@ const pretty = key => {
   return d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
 };
 
-export default function AddLeaveScreen({workers, onSaved, onBack, preselect, defaultShift}) {
+export default function AddLeaveScreen({workers, onSaved, onBack, preselect, defaultShift, activeShiftId}) {
   const {t: tr, lang} = useLang();
   const today = dateKey(new Date());
   const [worker, setWorker] = useState(preselect || null);
@@ -52,7 +52,42 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect, def
   const [dateTarget, setDateTarget] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // A leave cannot be applied for a shift that has already started today: the
+  // ongoing shift, and (once the second shift starts) both shifts of the day.
+  const leaveStartsToday = from === today;
+  const shiftStartedToday = id =>
+    leaveStartsToday &&
+    (shiftWindowState(getShift(id)) !== 'before' || activeShiftId === id);
+  const shift1Started = shiftStartedToday(1);
+  const shift2Started = shiftStartedToday(2);
+  const anyStartedToday = shift1Started || shift2Started;
+  const allStartedToday = shift1Started && shift2Started; // second shift started
+
+  // Keep the selection valid as the date/active shift change: move off a shift
+  // that has started, and drop "both shifts" once any shift has started today.
+  useEffect(() => {
+    if (bothShifts && anyStartedToday) {
+      setBothShifts(false);
+    }
+    if (shift === 1 && shift1Started && !shift2Started) {
+      setShift(2);
+    } else if (shift === 2 && shift2Started && !shift1Started) {
+      setShift(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, activeShiftId]);
+
   const save = async () => {
+    // Block leave for a shift already under way today.
+    if (leaveStartsToday && anyStartedToday) {
+      if (allStartedToday || bothShifts || shiftStartedToday(shift)) {
+        Alert.alert(
+          tr('addLeave'),
+          allStartedToday ? tr('leaveTodayClosed') : tr('leaveShiftStarted'),
+        );
+        return;
+      }
+    }
     if (!worker) {
       Alert.alert(tr('addLeave'), tr('selectWorker'));
       return;
@@ -131,13 +166,26 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect, def
           />
         </View>
 
-        <View style={s.toggleCard}>
-          <View style={{flex: 1}}>
-            <Text style={s.toggleTitle}>{tr('applyBothShifts')}</Text>
-            <Text style={t.small}>{tr('bothShiftsSub')}</Text>
+        {leaveStartsToday && anyStartedToday ? (
+          <View style={{paddingHorizontal: 16, marginBottom: 6}}>
+            <Banner
+              tone="warning"
+              icon="schedule"
+              body={allStartedToday ? tr('leaveTodayClosed') : tr('leaveShiftStarted')}
+            />
           </View>
-          <Switch value={bothShifts} onValueChange={setBothShifts} />
-        </View>
+        ) : null}
+
+        {/* "Both shifts" is only offered when neither shift has started today. */}
+        {anyStartedToday ? null : (
+          <View style={s.toggleCard}>
+            <View style={{flex: 1}}>
+              <Text style={s.toggleTitle}>{tr('applyBothShifts')}</Text>
+              <Text style={t.small}>{tr('bothShiftsSub')}</Text>
+            </View>
+            <Switch value={bothShifts} onValueChange={setBothShifts} />
+          </View>
+        )}
 
         {!bothShifts ? (
           <>
@@ -147,14 +195,16 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect, def
                 label={tr('shift1')}
                 icon="wb-sunny"
                 selected={shift === 1}
-                onPress={() => setShift(1)}
+                disabled={shift1Started}
+                onPress={() => !shift1Started && setShift(1)}
                 style={{marginRight: 10}}
               />
               <SegmentPill
                 label={tr('shift2')}
                 icon="wb-twilight"
                 selected={shift === 2}
-                onPress={() => setShift(2)}
+                disabled={shift2Started}
+                onPress={() => !shift2Started && setShift(2)}
               />
             </View>
           </>

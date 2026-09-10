@@ -66,9 +66,20 @@ export async function changeAccountPassword(email, oldPassword, newPassword) {
       await local.markPasswordChanged();
       return {ok: true};
     } catch (err) {
-      if (err.status === 400 || err.status === 401) {
-        // The backend returns its own wording, e.g. "The old password is not correct."
-        return {ok: false, reason: 'badOldPassword', message: err.message};
+      const detail = String(err.message || '');
+      // 406 is returned when the new password equals the current one.
+      if (err.status === 406 || /and new (password )?are the same/i.test(detail)) {
+        return {ok: false, reason: 'samePassword'};
+      }
+      // The backend blocks every change once a password has been reset (its
+      // must_reset flag is 0), replying 400 "Password is already reset." even for
+      // the correct current password and a different new one. This is a backend
+      // limitation the app cannot work around — surface it clearly.
+      if (/already reset/i.test(detail)) {
+        return {ok: false, reason: 'alreadyReset'};
+      }
+      if (err.status === 400 || err.status === 401 || err.status === 403) {
+        return {ok: false, reason: 'badOldPassword'};
       }
       return {ok: false, reason: 'network', message: err.message};
     }

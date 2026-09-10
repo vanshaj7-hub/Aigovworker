@@ -42,6 +42,22 @@ import OfflineSyncScreen from './screens/OfflineSyncScreen';
 
 const PHOTO_DIR = `${RNFS.DocumentDirectoryPath}/attendance`;
 
+// True only once `active` has stayed true for `delay` ms — so a quick refresh
+// never flashes skeletons, but a genuinely delayed one shows them instead of
+// leaving stale data on screen.
+function useDelayedFlag(active, delay = 350) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setOn(false);
+      return undefined;
+    }
+    const id = setTimeout(() => setOn(true), delay);
+    return () => clearTimeout(id);
+  }, [active, delay]);
+  return on;
+}
+
 function Shell() {
   const {t: tr} = useLang();
   const [booted, setBooted] = useState(false);
@@ -79,6 +95,9 @@ function Shell() {
   // Attendance may only be marked while a shift is ongoing — and the backend,
   // not the app's local clock, is the authority on the shift windows.
   const [activeShift, setActiveShift] = useState(null);
+  // True while a backend refresh is in flight; drives the skeleton loaders so a
+  // slow fetch shows placeholders instead of stale data.
+  const [refreshing, setRefreshing] = useState(false);
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
   const refCache = useRef({});
@@ -132,6 +151,17 @@ function Shell() {
     position,
   };
 
+  // Show skeletons once a refresh has been in flight long enough to matter.
+  const showSkeleton = useDelayedFlag(refreshing);
+  // The shift the backend reports as currently open (null between shifts).
+  const activeShiftId = USE_BACKEND
+    ? activeShift
+      ? activeShift.shift_id
+      : null
+    : ongoingShift()
+    ? ongoingShift().id
+    : null;
+
   // The backend is the source of truth for whether the profile is complete, so
   // a returning supervisor whose profile is already done is never re-prompted.
   const profileReady =
@@ -143,6 +173,7 @@ function Shell() {
     if (!USE_BACKEND || !session) {
       return;
     }
+    setRefreshing(true);
     try {
       const supId = session.supervisorId;
       const ws = await svc.loadWorkspace(supId);
@@ -165,6 +196,7 @@ function Shell() {
       // Keep whatever ward we have; the gate still runs against it.
     } finally {
       setWorkspaceLoaded(true);
+      setRefreshing(false);
     }
   }, [session]);
 
@@ -637,15 +669,8 @@ function Shell() {
           fence={fence}
           shiftId={shiftId}
           setShiftId={setShiftId}
-          ongoingShiftId={
-            USE_BACKEND
-              ? activeShift
-                ? activeShift.shift_id
-                : null
-              : ongoingShift()
-              ? ongoingShift().id
-              : null
-          }
+          ongoingShiftId={activeShiftId}
+          loading={showSkeleton}
           onBack={goHome}
           onPick={w => {
             setActive(w);
@@ -741,6 +766,7 @@ function Shell() {
       return (
         <WorkerListScreen
           workers={data.workers}
+          loading={showSkeleton}
           onBack={goHome}
           onAdd={() => {
             setEditWorker(null);
@@ -809,6 +835,7 @@ function Shell() {
         <AddLeaveScreen
           workers={data.workers}
           defaultShift={activeShift ? activeShift.shift_id : shiftId}
+          activeShiftId={activeShiftId}
           onBack={goHome}
           onSaved={(leaves, worker, detail) => {
             setData(d => ({...d, leaves}));
@@ -873,6 +900,9 @@ function Shell() {
           isOnline={isOnline}
           onDemo={onDemo}
           counts={backendCounts}
+          shiftId={shiftId}
+          activeShiftId={activeShiftId}
+          loading={showSkeleton}
           onChangePassword={() => setShowPasswordChange(true)}
           navigate={async target => {
             if (target === 'signOut') {

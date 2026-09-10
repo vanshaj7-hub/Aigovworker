@@ -13,15 +13,16 @@ import {
   ProgressBar,
   Screen,
   SectionLabel,
+  Skeleton,
   StatusPill,
 } from '../ui';
 import {
   clockTime,
   currentShift,
   dateKey,
+  getShift,
   resolveStatus,
   shiftLabel,
-  shiftWindowState,
 } from '../domain/shifts';
 
 function ActionTile({icon, color, title, sub, onPress}) {
@@ -43,9 +44,12 @@ function DemoRow({icon, label, onPress, danger}) {
   );
 }
 
-export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword, counts: serverCounts}) {
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword, counts: serverCounts, shiftId, activeShiftId, loading}) {
   const {t: tr, lang} = useLang();
-  const shift = currentShift();
+  // Show progress for the shift the backend counts are for (the ongoing one
+  // during shift hours), not the app's local clock.
+  const displayShiftId = shiftId || currentShift().id;
+  const shift = getShift(displayShiftId);
   const dk = dateKey(new Date());
 
   const counts = useMemo(() => {
@@ -82,9 +86,8 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
 
   const queued = records.filter(rec => !rec.synced).length;
   const hasDemo = workers.some(w => w.demo) || records.some(rec => rec.demo);
-  const state = shiftWindowState(shift);
-  const shiftKey =
-    state === 'open' ? 'shiftInProgress' : state === 'closed' ? 'shiftClosed' : 'shiftNotStarted';
+  // Whether the shift we are showing progress for is the one running now.
+  const shiftRunning = activeShiftId != null && activeShiftId === displayShiftId;
 
   const dateLabel = new Date().toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-GB', {
     weekday: 'long',
@@ -112,20 +115,37 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
           <View style={s.summaryTop}>
             <Text style={s.date}>{dateLabel}</Text>
             <StatusPill
-              label={tr(shiftKey, {shift: shiftLabel(tr, shift.id)})}
-              tone={state === 'open' ? 'info' : 'neutral'}
+              label={
+                shiftRunning
+                  ? tr('shiftInProgress', {shift: shiftLabel(tr, displayShiftId)})
+                  : tr('noActiveShift')
+              }
+              tone={shiftRunning ? 'info' : 'neutral'}
             />
           </View>
-          <View style={s.countRow}>
-            <Text style={s.bigCount}>{view.present}</Text>
-            <Text style={s.countSub}>{tr('marked', {total: view.total})}</Text>
-          </View>
-          <ProgressBar value={view.present} total={view.total} />
-          <View style={s.legendRow}>
-            <LegendDot color={c.success} label={tr('present')} value={view.present} />
-            <LegendDot color={c.textDisabled} label={tr('pending')} value={view.pending} />
-            <LegendDot color={c.warning} label={tr('onLeave')} value={view.leave} />
-          </View>
+          {loading ? (
+            <View style={{paddingVertical: 6}}>
+              <Skeleton width={130} height={40} radius={8} style={{marginTop: 12}} />
+              <Skeleton width={'100%'} height={8} radius={4} style={{marginTop: 18}} />
+              <Skeleton width={'70%'} height={12} style={{marginTop: 16}} />
+            </View>
+          ) : (
+            <>
+              <Text style={s.progressLabel}>
+                {tr('shiftProgress', {shift: shiftLabel(tr, displayShiftId)})}
+              </Text>
+              <View style={s.countRow}>
+                <Text style={s.bigCount}>{view.present}</Text>
+                <Text style={s.countSub}>{tr('marked', {total: view.total})}</Text>
+              </View>
+              <ProgressBar value={view.present} total={view.total} />
+              <View style={s.legendRow}>
+                <LegendDot color={c.success} label={tr('present')} value={view.present} />
+                <LegendDot color={c.textDisabled} label={tr('pending')} value={view.pending} />
+                <LegendDot color={c.warning} label={tr('onLeave')} value={view.leave} />
+              </View>
+            </>
+          )}
         </Card>
 
         <View style={s.grid}>
@@ -232,7 +252,8 @@ const s = StyleSheet.create({
 
   summaryTop: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   date: {...t.body, color: c.textMuted, flex: 1, marginRight: 10},
-  countRow: {flexDirection: 'row', alignItems: 'baseline', marginTop: 14, marginBottom: 12},
+  progressLabel: {...t.small, fontWeight: '700', color: c.textMuted, marginTop: 14, letterSpacing: 0.3},
+  countRow: {flexDirection: 'row', alignItems: 'baseline', marginTop: 4, marginBottom: 12},
   bigCount: {fontSize: 40, fontWeight: '500', color: c.text, lineHeight: 44},
   countSub: {fontSize: 17, color: c.textMuted, marginLeft: 8},
   legendRow: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 14},

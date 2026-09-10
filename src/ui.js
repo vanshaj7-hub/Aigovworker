@@ -1,6 +1,7 @@
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Pressable,
   StyleSheet,
@@ -12,6 +13,59 @@ import MIcon from 'react-native-vector-icons/MaterialIcons';
 import {c, elevation, r, t} from './theme';
 import {useLang} from './i18n';
 import {initials as toInitials} from './domain/shifts';
+
+/**
+ * A softly pulsing placeholder block ("glass shade" loader) shown while real
+ * data is being fetched, so a screen never flashes stale or dummy content.
+ */
+export function Skeleton({width = '100%', height = 14, radius = 8, style}) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {toValue: 1, duration: 800, useNativeDriver: true}),
+        Animated.timing(pulse, {toValue: 0, duration: 800, useNativeDriver: true}),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const opacity = pulse.interpolate({inputRange: [0, 1], outputRange: [0.3, 0.65]});
+  return (
+    <Animated.View
+      style={[{width, height, borderRadius: radius, backgroundColor: c.fill, opacity}, style]}
+    />
+  );
+}
+
+/** A skeleton stand-in for a worker/list row: round avatar + two text lines. */
+export function SkeletonRow() {
+  return (
+    <View style={sk.row}>
+      <Skeleton width={44} height={44} radius={22} />
+      <View style={{flex: 1, marginLeft: 14}}>
+        <Skeleton width={'55%'} height={15} />
+        <Skeleton width={'35%'} height={12} style={{marginTop: 8}} />
+      </View>
+      <Skeleton width={64} height={24} radius={12} />
+    </View>
+  );
+}
+
+/** A column of `n` skeleton rows. */
+export function SkeletonList({n = 6}) {
+  return (
+    <View>
+      {Array.from({length: n}).map((_, i) => (
+        <SkeletonRow key={i} />
+      ))}
+    </View>
+  );
+}
+
+const sk = StyleSheet.create({
+  row: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 15},
+});
 
 export function Icon({name, size = 22, color = c.textMuted, style}) {
   return <MIcon name={name} size={size} color={color} style={style} />;

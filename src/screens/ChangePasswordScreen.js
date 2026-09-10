@@ -44,15 +44,25 @@ export default function ChangePasswordScreen({email, forced, onDone, onSkip, onB
       Alert.alert(tr('changePasswordTitle'), tr('pwMismatch'));
       return;
     }
+    if (current === pw) {
+      Alert.alert(tr('changePasswordTitle'), tr('pwSameAsCurrent'));
+      return;
+    }
     setBusy(true);
     try {
       const res = await changeAccountPassword(email, current, pw);
       if (!res.ok) {
-        Alert.alert(
-          tr('changePasswordTitle'),
-          // The backend supplies its own wording for a wrong old password.
-          res.message || (res.reason === 'badOldPassword' ? tr('signInFailedBody') : tr('noAccountFound')),
-        );
+        const msg =
+          res.reason === 'samePassword'
+            ? tr('pwSameAsCurrent')
+            : res.reason === 'alreadyReset'
+            ? tr('pwAlreadyReset')
+            : res.reason === 'badOldPassword'
+            ? tr('currentPasswordWrong')
+            : res.reason === 'network'
+            ? res.message || tr('connectionProblem')
+            : tr('noAccountFound');
+        Alert.alert(tr('changePasswordTitle'), msg);
         return;
       }
       Alert.alert(tr('changePasswordTitle'), tr('passwordChanged'));

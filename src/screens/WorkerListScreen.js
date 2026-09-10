@@ -2,20 +2,23 @@ import React from 'react';
 import {FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
-import {AppBar, Avatar, BottomBar, Divider, EmptyState, FilledButton, Icon, Screen, StatusPill} from '../ui';
+import {AppBar, Avatar, BottomBar, Divider, EmptyState, FilledButton, Icon, Screen, SkeletonList, StatusPill} from '../ui';
 import {localizeDesignation, localizeWorkerName} from '../localize';
 
 /**
  * The worker-management list: tap a worker to edit their details, or use the
  * button at the bottom to add a new worker.
  */
-export default function WorkerListScreen({workers, onEdit, onAdd, onBack}) {
+export default function WorkerListScreen({workers, onEdit, onAdd, onBack, loading}) {
   const {t: tr, lang} = useLang();
   return (
     <Screen bg={c.surface}>
       <AppBar title={tr('manageWorkers')} onBack={onBack} />
       <Divider />
-      <Text style={s.count}>{tr('workersInWard', {n: workers.length})}</Text>
+      <Text style={s.count}>{tr('workersInWard', {n: loading ? '…' : workers.length})}</Text>
+      {loading ? (
+        <SkeletonList n={6} />
+      ) : (
       <FlatList
         data={workers}
         keyExtractor={w => String(w.id != null ? w.id : w.workerId)}
@@ -42,6 +45,7 @@ export default function WorkerListScreen({workers, onEdit, onAdd, onBack}) {
           </Pressable>
         )}
       />
+      )}
       <BottomBar>
         <FilledButton label={tr('addWorker')} icon="person-add-alt" onPress={onAdd} />
       </BottomBar>

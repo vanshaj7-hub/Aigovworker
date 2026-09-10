@@ -12,6 +12,7 @@ import {
   Screen,
   SectionLabel,
   SegmentPill,
+  SkeletonList,
   StatusPill,
 } from '../ui';
 import {dateKey, resolveStatus} from '../domain/shifts';
@@ -27,6 +28,7 @@ export default function SelectWorkerScreen({
   shiftId,
   setShiftId,
   ongoingShiftId,
+  loading,
   onPick,
   onBack,
 }) {
@@ -156,6 +158,9 @@ export default function SelectWorkerScreen({
       </SectionLabel>
       <Divider />
 
+      {loading ? (
+        <SkeletonList n={6} />
+      ) : (
       <FlatList
         data={rows}
         keyExtractor={row => row.worker.id}
@@ -216,6 +221,7 @@ export default function SelectWorkerScreen({
           );
         }}
       />
+      )}
     </Screen>
   );
 }
