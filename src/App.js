@@ -510,9 +510,17 @@ function Shell() {
       // Verify the live capture against the reference. Always strict now.
       const sim = cosineSimilarity(embedding, reference);
       if (sim < MATCH_THRESHOLD) {
-        // Face did not match — mark Absent and let the supervisor retry.
+        // Face did not match — mark Absent and let the supervisor retry. Show the
+        // actual match % (and the required %) so a near-miss is visible and the
+        // threshold can be judged from real captures.
         setFailed(m => ({...m, [worker.id]: true}));
-        Alert.alert(tr('notMatched'), `${tr('notMatchedBody', {name: worker.name})} ${tr('markedAbsentRetry')}`);
+        Alert.alert(
+          tr('notMatched'),
+          `${tr('notMatchedBody', {name: worker.name})} ${tr('matchScoreLine', {
+            got: Math.round(sim * 100),
+            need: Math.round(MATCH_THRESHOLD * 100),
+          })} ${tr('markedAbsentRetry')}`,
+        );
         return;
       }
       const score = Math.round(sim * 100) / 100;

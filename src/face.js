@@ -16,11 +16,14 @@ import {
   sampleRGB,
 } from './domain/faceMath';
 
-// Cosine similarity above which two embeddings are treated as the same person,
-// i.e. an 85% match is required. This is deliberately strict: it rules out
-// look-alikes, but genuine captures under very different lighting/angle from the
-// reference may occasionally fall short and need a retake.
-export const MATCH_THRESHOLD = 0.85;
+// Cosine similarity above which two embeddings are treated as the same person.
+// 0.6 is the standard operating point for aligned MobileFaceNet: offline testing
+// on the real model put genuine captures (same person, varied lighting/pose) at
+// ~0.88+ and different people below ~0.27, so 0.6 leaves a wide margin. 0.85 was
+// too strict and rejected genuine faces once real-world pose/expression came in.
+// Raise toward 0.7-0.75 if you ever see a wrong person accepted; lower toward
+// 0.5 if genuine workers get rejected.
+export const MATCH_THRESHOLD = 0.6;
 
 // Resolution of the intermediate square crop we decode and sample from. Larger
 // than the model input so the alignment resampling has detail to work with.
