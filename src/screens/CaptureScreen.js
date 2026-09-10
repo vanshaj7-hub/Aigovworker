@@ -16,6 +16,7 @@ import FaceDetection from '@react-native-ml-kit/face-detection';
 import {c} from '../theme';
 import {useLang} from '../i18n';
 import {Icon} from '../ui';
+import {openAppSettings} from '../device';
 import {shiftLabel} from '../domain/shifts';
 
 const {width: SW, height: SH} = Dimensions.get('window');
@@ -32,11 +33,25 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
   const [torch, setTorch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [faceState, setFaceState] = useState('unknown'); // unknown | yes | no
+  const [camPermission, setCamPermission] = useState('checking'); // checking | granted | denied
   const device = useCameraDevice(position);
   const alive = useRef(true);
 
   useEffect(() => () => {
     alive.current = false;
+  }, []);
+
+  // Confirm camera access up front; if it is blocked, offer to open settings.
+  useEffect(() => {
+    (async () => {
+      let status = Camera.getCameraPermissionStatus();
+      if (status !== 'granted') {
+        status = await Camera.requestCameraPermission();
+      }
+      if (alive.current) {
+        setCamPermission(status === 'granted' ? 'granted' : 'denied');
+      }
+    })();
   }, []);
 
   // Live face indicator. Uses cheap preview snapshots; if the platform cannot
@@ -114,7 +129,15 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={c.camBg} />
-      {device ? (
+      {camPermission === 'denied' ? (
+        <View style={[StyleSheet.absoluteFill, s.noCam]}>
+          <Icon name="no-photography" size={44} color="#ffffff88" />
+          <Text style={s.noCamText}>{tr('cameraBlockedBody')}</Text>
+          <Pressable onPress={openAppSettings} style={s.settingsBtn}>
+            <Text style={s.settingsBtnText}>{tr('openSettings')}</Text>
+          </Pressable>
+        </View>
+      ) : device ? (
         <Camera
           ref={cam}
           style={StyleSheet.absoluteFill}
@@ -126,7 +149,9 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
       ) : (
         <View style={[StyleSheet.absoluteFill, s.noCam]}>
           <Icon name="photo-camera" size={44} color="#ffffff55" />
-          <Text style={s.noCamText}>{tr('cameraDenied')}</Text>
+          <Text style={s.noCamText}>
+            {camPermission === 'checking' ? tr('checking') : tr('cameraUnavailable')}
+          </Text>
         </View>
       )}
 
@@ -218,6 +243,8 @@ const s = StyleSheet.create({
   root: {flex: 1, backgroundColor: c.camBg},
   noCam: {alignItems: 'center', justifyContent: 'center', backgroundColor: c.camBg},
   noCamText: {color: '#ffffff88', marginTop: 14, fontSize: 14, textAlign: 'center', paddingHorizontal: 40},
+  settingsBtn: {marginTop: 18, borderWidth: 1, borderColor: '#ffffff66', borderRadius: 999, paddingHorizontal: 22, paddingVertical: 10},
+  settingsBtnText: {color: '#fff', fontSize: 14.5, fontWeight: '600'},
 
   topBar: {
     position: 'absolute',

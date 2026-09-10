@@ -1,6 +1,22 @@
-import {PermissionsAndroid, Platform} from 'react-native';
+import {Linking, PermissionsAndroid, Platform} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import {launchImageLibrary} from 'react-native-image-picker';
+
+/** Opens the OS location/GPS settings so the user can turn location on. */
+export function openLocationSettings() {
+  if (Platform.OS === 'android') {
+    Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS').catch(() =>
+      Linking.openSettings().catch(() => {}),
+    );
+  } else {
+    Linking.openURL('app-settings:').catch(() => {});
+  }
+}
+
+/** Opens this app's settings page (to grant a denied permission). */
+export function openAppSettings() {
+  Linking.openSettings().catch(() => {});
+}
 
 Geolocation.setRNConfiguration({skipPermissionRequests: true, authorizationLevel: 'whenInUse'});
 

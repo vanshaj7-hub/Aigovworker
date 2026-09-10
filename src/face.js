@@ -52,7 +52,14 @@ async function pickProminentFace(photoUri) {
   if (!faces || faces.length === 0) {
     throw new Error('NO_FACE');
   }
-  const byArea = [...faces].sort(
+  // Prefer detections that actually have both eye landmarks: a real face has
+  // eyes, so this filters the occasional non-face region ML Kit reports (which is
+  // what caused wrong-area crops). Fall back to all detections if none qualify.
+  const withEyes = faces.filter(
+    f => f.landmarks && f.landmarks.leftEye && f.landmarks.rightEye,
+  );
+  const pool = withEyes.length ? withEyes : faces;
+  const byArea = [...pool].sort(
     (a, b) => b.frame.width * b.frame.height - a.frame.width * a.frame.height,
   );
   if (byArea.length > 1) {

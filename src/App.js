@@ -16,7 +16,8 @@ import {
   setWardCentre,
   signOut as clearSession,
 } from './storage';
-import {getBestLocation, getLocation, requestPermissions, watchLocation} from './device';
+import {getBestLocation, getLocation, openLocationSettings, requestPermissions, watchLocation} from './device';
+import {FilledButton, Icon} from './ui';
 import {evaluateFence} from './domain/geo';
 import {currentShift, dateKey, ongoingShift} from './domain/shifts';
 import {isDemoWorker} from './demo';
@@ -300,16 +301,18 @@ function Shell() {
   /* ----------------------------------------------------- attendance capture */
 
   const writeRecord = useCallback(
-    async ({worker, faceUri, score, verified, fix, f}) => {
+    async ({worker, photoUri, score, verified, fix, f}) => {
       await RNFS.mkdir(PHOTO_DIR).catch(() => {});
-      let stored = faceUri;
-      if (faceUri) {
+      // Store/upload the FULL captured frame, never a face crop, so the record
+      // keeps the whole image exactly as taken.
+      let stored = photoUri;
+      if (photoUri) {
         try {
           const dest = `${PHOTO_DIR}/${Date.now()}.jpg`;
-          await RNFS.copyFile(faceUri.replace('file://', ''), dest);
+          await RNFS.copyFile(photoUri.replace('file://', ''), dest);
           stored = `file://${dest}`;
         } catch (e) {
-          // keep the temporary crop
+          // keep the original capture
         }
       }
       const {records, record} = await addAttendance({
@@ -389,6 +392,16 @@ function Shell() {
       // getBestLocation samples for the most accurate fix rather than accepting a
       // stale coarse one, which is what made a genuinely-inside device read outside.
       const fix = (await getBestLocation({window: 6000})) || position;
+      // No fix at all (and not bypassing) almost always means location/GPS is
+      // switched off — prompt the supervisor to turn it on rather than showing a
+      // misleading "outside the ward".
+      if (!fix && !attnBypass) {
+        Alert.alert(tr('locationOffTitle'), tr('locationOffBody'), [
+          {text: tr('cancel'), style: 'cancel'},
+          {text: tr('openSettings'), onPress: openLocationSettings},
+        ]);
+        return;
+      }
       const f = evaluateFence(fix, data.ward);
       if (!attnBypass && f.state !== 'inside') {
         setPosition(fix || position);
@@ -408,17 +421,16 @@ function Shell() {
         if (!proceed) {
           return;
         }
-        await writeRecord({worker, faceUri: uri, score: null, verified: false, fix, f});
+        await writeRecord({worker, photoUri: uri, score: null, verified: false, fix, f});
         return;
       }
 
-      // 3. Identity.
+      // 3. Identity. The face is detected inside the FULL captured image (we keep
+      // the whole image — only the embedding is computed from the found face).
       let embedding;
-      let faceUri;
       try {
         const out = await extractFaceEmbedding(uri);
         embedding = out.embedding;
-        faceUri = out.faceUri;
       } catch (err) {
         // No / unclear face — mark Absent for now; the supervisor can retry.
         setFailed(m => ({...m, [worker.id]: true}));
@@ -487,7 +499,7 @@ function Shell() {
 
       await writeRecord({
         worker,
-        faceUri,
+        photoUri: uri,
         score,
         verified,
         fix: afterFix,
@@ -962,9 +974,36 @@ function Shell() {
           />
         </Modal>
       ) : null}
+      {booted && !isOnline ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
+          <View style={netStyles.bg}>
+            <View style={netStyles.card}>
+              <Icon name="wifi-off" size={46} color={c.error} />
+              <Text style={netStyles.title}>{tr('noInternetTitle')}</Text>
+              <Text style={netStyles.body}>{tr('noInternetBody')}</Text>
+              <FilledButton
+                label={tr('retry')}
+                icon="refresh"
+                onPress={async () => {
+                  const st = await NetInfo.fetch();
+                  setIsOnline(!!st.isConnected);
+                }}
+                style={{marginTop: 20, minWidth: 160}}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </>
   );
 }
+
+const netStyles = {
+  bg: {flex: 1, backgroundColor: '#000000cc', alignItems: 'center', justifyContent: 'center', padding: 32},
+  card: {backgroundColor: c.surface, borderRadius: 16, padding: 28, alignItems: 'center', maxWidth: 340},
+  title: {fontSize: 19, fontWeight: '700', color: c.text, marginTop: 14, textAlign: 'center'},
+  body: {fontSize: 14.5, color: c.textMuted, marginTop: 10, textAlign: 'center', lineHeight: 21},
+};
 
 export default function App() {
   return (
