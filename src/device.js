@@ -47,13 +47,14 @@ export function getLocation({timeout = 15000, maximumAge = 15000} = {}) {
 }
 
 /**
- * Best-effort accurate one-shot fix. A single getCurrentPosition can hand back a
- * stale, coarse network fix (hundreds of metres off); this samples for a short
- * window and keeps the reading with the smallest accuracy circle, resolving
- * early once a fix good enough for the geo-fence arrives. Resolves null (never
- * rejects) if nothing usable is obtained in time.
+ * Best-effort accurate one-shot fix. It samples for a short window and keeps the
+ * reading with the smallest accuracy circle, resolving early once a fix good
+ * enough for the geo-fence arrives. Crucially it never gets stuck with no fix:
+ * it seeds immediately with a recent cached reading and, if the high-accuracy
+ * GPS never locks (common indoors), falls back to that recent reading rather
+ * than resolving null — which the caller would treat as "outside the ward".
  */
-export function getBestLocation({window = 6000, desiredAccuracy = 35} = {}) {
+export function getBestLocation({window = 8000, desiredAccuracy = 35} = {}) {
   return new Promise(resolve => {
     let best = null;
     let watchId = null;
@@ -75,7 +76,18 @@ export function getBestLocation({window = 6000, desiredAccuracy = 35} = {}) {
           // already cleared
         }
       }
-      resolve(best);
+      if (best) {
+        resolve(best);
+        return;
+      }
+      // Nothing arrived in the window — accept any recent cached fix (up to two
+      // minutes old, coarse allowed) instead of failing, so a slow GPS lock does
+      // not block attendance.
+      Geolocation.getCurrentPosition(
+        pos => resolve(shape(pos)),
+        () => resolve(null),
+        {enableHighAccuracy: false, timeout: 8000, maximumAge: 120000},
+      );
     };
 
     const consider = pos => {
@@ -98,14 +110,21 @@ export function getBestLocation({window = 6000, desiredAccuracy = 35} = {}) {
         maximumAge: 0,
       });
     } catch (e) {
-      // watchPosition unavailable — the one-shot below still runs
+      // watchPosition unavailable — the one-shots below still run
     }
 
-    // Seed with a fresh one-shot too, in case the watch is slow to emit.
+    // Fresh high-accuracy attempt.
     Geolocation.getCurrentPosition(consider, () => {}, {
       enableHighAccuracy: true,
       timeout: window,
       maximumAge: 0,
+    });
+    // Immediate coarse/cached seed so `best` is populated fast and we are never
+    // left with nothing to show while the GPS is still acquiring.
+    Geolocation.getCurrentPosition(consider, () => {}, {
+      enableHighAccuracy: false,
+      timeout: window,
+      maximumAge: 60000,
     });
 
     setTimeout(finish, window);

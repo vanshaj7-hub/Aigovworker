@@ -12,7 +12,6 @@ import {
   LegendDot,
   ProgressBar,
   Screen,
-  SectionLabel,
   Skeleton,
   StatusPill,
 } from '../ui';
@@ -35,16 +34,8 @@ function ActionTile({icon, color, title, sub, onPress}) {
   );
 }
 
-function DemoRow({icon, label, onPress, danger}) {
-  return (
-    <Pressable onPress={onPress} android_ripple={{color: '#00000010'}} style={s.demoRow}>
-      <Icon name={icon} size={20} color={danger ? c.error : c.primaryDark} style={{marginRight: 12}} />
-      <Text style={[s.demoLabel, danger && {color: c.error}]}>{label}</Text>
-    </Pressable>
-  );
-}
 
-export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onDemo, onChangePassword, counts: serverCounts, shiftId, activeShiftId, loading}) {
+export default function HomeScreen({profile, ward, workers, records, leaves, lastSync, isOnline, navigate, onChangePassword, counts: serverCounts, shiftId, activeShiftId, loading}) {
   const {t: tr, lang} = useLang();
   // Show progress for the shift the backend counts are for (the ongoing one
   // during shift hours), not the app's local clock.
@@ -85,7 +76,6 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
     : counts;
 
   const queued = records.filter(rec => !rec.synced).length;
-  const hasDemo = workers.some(w => w.demo) || records.some(rec => rec.demo);
   // Whether the shift we are showing progress for is the one running now.
   const shiftRunning = activeShiftId != null && activeShiftId === displayShiftId;
 
@@ -204,29 +194,6 @@ export default function HomeScreen({profile, ward, workers, records, leaves, las
           )}
         </Pressable>
 
-        <View style={s.demoBox}>
-          <SectionLabel style={{paddingHorizontal: 0, paddingTop: 4}}>{tr('demoData')}</SectionLabel>
-          <Text style={[t.small, {marginBottom: 10}]}>{tr('demoDataSub')}</Text>
-          <DemoRow
-            icon="group-add"
-            label={tr('loadDemoWorkers')}
-            onPress={() => onDemo('workers')}
-          />
-          <DemoRow
-            icon="history"
-            label={tr('loadDemoHistory')}
-            onPress={() => onDemo('history')}
-          />
-          {hasDemo ? (
-            <DemoRow
-              icon="delete-outline"
-              label={tr('clearDemo')}
-              danger
-              onPress={() => onDemo('clear')}
-            />
-          ) : null}
-        </View>
-
         <Pressable onPress={onChangePassword} style={s.signOut}>
           <Text style={s.signOutText}>{tr('changePassword')}</Text>
         </Pressable>
@@ -263,17 +230,6 @@ const s = StyleSheet.create({
   tileTitle: {fontSize: 16, fontWeight: '600', color: c.text, marginTop: 14},
   tileSub: {...t.small, marginTop: 3},
 
-  demoBox: {
-    marginTop: 16,
-    backgroundColor: c.surface,
-    borderRadius: r.card,
-    borderWidth: 1,
-    borderColor: c.outlineSoft,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  demoRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 13},
-  demoLabel: {fontSize: 14.5, color: c.primaryDark, fontWeight: '600'},
   signOut: {alignItems: 'center', paddingVertical: 22},
   signOutText: {color: c.primaryDark, fontSize: 14.5, fontWeight: '600'},
 });

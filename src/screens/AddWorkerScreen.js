@@ -66,9 +66,11 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
     }
     setBusy(true);
     try {
-      const {embedding: emb, faceUri} = await extractFaceEmbedding(uri);
+      // Detect the face (for the embedding) but keep the FULL captured photo for
+      // upload/display — the reference image must not be cropped to the face.
+      const {embedding: emb} = await extractFaceEmbedding(uri);
       setEmbedding(emb);
-      setPhoto(faceUri);
+      setPhoto(uri);
     } catch (err) {
       Alert.alert(tr('referencePhotograph'), faceErrorMessage(err, tr));
     } finally {

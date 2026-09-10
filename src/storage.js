@@ -238,6 +238,50 @@ export async function addAttendance(rec) {
   return {records: filtered, record: full};
 }
 
+/**
+ * Bring local attendance in line with the backend for a given shift/day: the
+ * backend is the source of truth, so any worker it reports as "present" that has
+ * no local record (e.g. marked on another device, or after a reinstall) gets a
+ * local record created. This is why History showed Absent for workers the
+ * endpoint reports Present — History reads local records. Only adds records,
+ * never removes, so a mark made here is never lost. Returns the full list.
+ */
+export async function reconcileAttendance(backendWorkers, shiftId, date) {
+  const all = await getAttendance();
+  let changed = false;
+  for (const w of backendWorkers || []) {
+    if (w.attendanceStatus !== 'present') {
+      continue;
+    }
+    const wid = String(w.id != null ? w.id : w.workerId);
+    const has = all.some(r => r.workerId === wid && r.date === date && r.shift === shiftId);
+    if (!has) {
+      all.unshift({
+        id: uid('a'),
+        createdAt: new Date().toISOString(),
+        synced: true,
+        workerId: wid,
+        workerName: w.name,
+        date,
+        shift: shiftId,
+        capturedAt: new Date().toISOString(),
+        matchScore: null,
+        verified: true,
+        insideGeofence: true,
+        distanceM: null,
+        photoUri: w.photoUri || null,
+        fromBackend: true,
+        reconciled: true,
+      });
+      changed = true;
+    }
+  }
+  if (changed) {
+    await write(K.ATTENDANCE, all);
+  }
+  return {records: all, changed};
+}
+
 /* ----------------------------------------------------------------- leaves */
 
 export const getLeaves = () => read(K.LEAVES, []);

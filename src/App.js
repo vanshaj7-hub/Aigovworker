@@ -1,19 +1,17 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Alert, BackHandler, Modal, StatusBar, Text, View} from 'react-native';
+import {ActivityIndicator, Alert, AppState, BackHandler, Modal, StatusBar, Text, View} from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import RNFS from 'react-native-fs';
 import {c} from './theme';
 import {LanguageProvider, useLang} from './i18n';
 import {
   addAttendance,
-  clearDemoData,
   flushQueue,
   getSession,
   dismissPasswordPrompt,
   isProfileComplete,
   loadAll,
-  seedDemoHistory,
-  seedDemoWorkers,
+  reconcileAttendance,
   setProfilePhotoUrl,
   setWardCentre,
   signOut as clearSession,
@@ -152,7 +150,7 @@ function Shell() {
   };
 
   // Show skeletons once a refresh has been in flight long enough to matter.
-  const showSkeleton = useDelayedFlag(refreshing);
+  const showSkeleton = useDelayedFlag(refreshing, 220);
   // The shift the backend reports as currently open (null between shifts).
   const activeShiftId = USE_BACKEND
     ? activeShift
@@ -178,6 +176,15 @@ function Shell() {
       const supId = session.supervisorId;
       const ws = await svc.loadWorkspace(supId);
       const workers = await svc.loadWorkers(supId, ws.shiftId);
+      // Reconcile local attendance with the backend's "present" workers for this
+      // shift/day so History (which reads local records) agrees with the endpoint.
+      let reconciledRecords = null;
+      try {
+        const rec = await reconcileAttendance(workers, ws.shiftId, dateKey(new Date()));
+        reconciledRecords = rec.records;
+      } catch (e) {
+        // reconciliation is best-effort
+      }
       setShiftId(ws.shiftId);
       setBackendCounts(ws.counts);
       setActiveShift(ws.shift || null);
@@ -187,7 +194,11 @@ function Shell() {
         const profile = ws.profilePhotoUrl
           ? {...(d.profile || {name: session.fullName || ''}), photoUri: ws.profilePhotoUrl}
           : d.profile;
-        return {...d, ward: ws.ward, workers, profile};
+        const next = {...d, ward: ws.ward, workers, profile};
+        if (reconciledRecords) {
+          next.records = reconciledRecords;
+        }
+        return next;
       });
       if (ws.profilePhotoUrl) {
         setProfilePhotoUrl(ws.profilePhotoUrl).catch(() => {});
@@ -209,6 +220,20 @@ function Shell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, workspaceLoaded]);
+
+  // Re-pull fresh data whenever the app returns to the foreground, so a screen
+  // left open in the background never lingers on stale counts/roster.
+  useEffect(() => {
+    if (!session) {
+      return undefined;
+    }
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') {
+        loadBackendWorkspace();
+      }
+    });
+    return () => sub.remove();
+  }, [session, loadBackendWorkspace]);
 
   /* ------------------------------------------------------------ navigation */
   const goHome = useCallback(() => {
@@ -515,40 +540,6 @@ function Shell() {
       }
     },
     [session, data.ward, tr, requestPhoto, loadBackendWorkspace],
-  );
-
-  /* ------------------------------------------------------------ demo data */
-
-  const onDemo = useCallback(
-    async action => {
-      try {
-        if (action === 'workers') {
-          const res = await seedDemoWorkers();
-          setData(d => ({...d, workers: res.workers}));
-          Alert.alert(
-            tr('demoData'),
-            res.added ? tr('demoWorkersAdded', {n: res.added}) : tr('demoAlready'),
-          );
-        } else if (action === 'history') {
-          const res = await seedDemoHistory(session.supervisorId);
-          setData(d => ({
-            ...d,
-            workers: res.workers,
-            records: res.records,
-            leaves: res.leaves,
-            lastSync: new Date().toISOString(),
-          }));
-          Alert.alert(tr('demoData'), tr('demoHistoryAdded'));
-        } else if (action === 'clear') {
-          const res = await clearDemoData();
-          setData(d => ({...d, workers: res.workers, records: res.records, leaves: res.leaves}));
-          Alert.alert(tr('demoData'), tr('demoCleared'));
-        }
-      } catch (err) {
-        Alert.alert(tr('demoData'), String(err && err.message ? err.message : err));
-      }
-    },
-    [session, tr],
   );
 
   /* ---------------------------------------------------------------- render */
@@ -898,12 +889,20 @@ function Shell() {
           leaves={data.leaves}
           lastSync={data.lastSync}
           isOnline={isOnline}
-          onDemo={onDemo}
           counts={backendCounts}
           shiftId={shiftId}
           activeShiftId={activeShiftId}
           loading={showSkeleton}
-          onChangePassword={() => setShowPasswordChange(true)}
+          onChangePassword={() => {
+            // After the one-time forced reset (mustResetPassword=0) the backend
+            // blocks self-service changes, so send the supervisor straight to the
+            // "contact IT admin" message instead of a form that cannot succeed.
+            if (session.mustResetPassword) {
+              setShowPasswordChange(true);
+            } else {
+              Alert.alert(tr('changePasswordTitle'), tr('pwAlreadyReset'));
+            }
+          }}
           navigate={async target => {
             if (target === 'signOut') {
               await clearSession();
