@@ -1,0 +1,61 @@
+name: iOS build (unsigned IPA)
+
+# Manual trigger only — it will NOT run on every push, so it never quietly burns
+# your macOS CI minutes. Run it from the GitHub "Actions" tab -> "iOS build
+# (unsigned IPA)" -> "Run workflow" when you want a fresh build.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install JS dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || true
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build (unsigned, device SDK)
+        run: |
+          cd ios
+          xcodebuild \
+            -workspace AttendanceApp.xcworkspace \
+            -scheme AttendanceApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned .ipa
+        run: |
+          cd ios/build/Build/Products/Release-iphoneos
+          mkdir -p Payload
+          cp -R AttendanceApp.app Payload/
+          zip -qr AttendanceApp-unsigned.ipa Payload
+          ls -la AttendanceApp-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AttendanceApp-unsigned-ipa
+          path: ios/build/Build/Products/Release-iphoneos/AttendanceApp-unsigned.ipa
+          if-no-files-found: error
