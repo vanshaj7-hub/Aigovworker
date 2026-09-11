@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Image,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -23,6 +24,49 @@ const {width: SW, height: SH} = Dimensions.get('window');
 const OVAL = {cx: SW / 2, cy: SH * 0.40, rx: SW * 0.34, ry: SW * 0.44};
 
 const uriOf = p => (p.startsWith('file://') || p.startsWith('content://') ? p : 'file://' + p);
+
+const getImgSize = uri =>
+  new Promise((resolve, reject) => Image.getSize(uri, (w, h) => resolve({w, h}), reject));
+
+/**
+ * Map the on-screen face oval to a rectangle in the captured photo's pixels, so
+ * matching can use just the framed face. The preview fills the screen "cover", so
+ * we invert that scale/offset. Returns null if it can't be computed or the region
+ * would be ~the whole frame (nothing to gain); callers then match the full image.
+ */
+async function computeOvalRoi(uri) {
+  try {
+    const {w: iw, h: ih} = await getImgSize(uri);
+    if (!iw || !ih) {
+      return null;
+    }
+    const scale = Math.max(SW / iw, SH / ih); // cover fit
+    const offX = (iw * scale - SW) / 2;
+    const offY = (ih * scale - SH) / 2;
+    const sx2img = sx => (sx + offX) / scale;
+    const sy2img = sy => (sy + offY) / scale;
+    const m = 0.22; // grow the oval box a little so the whole face is inside
+    let x0 = sx2img(OVAL.cx - OVAL.rx * (1 + m));
+    let y0 = sy2img(OVAL.cy - OVAL.ry * (1 + m));
+    let x1 = sx2img(OVAL.cx + OVAL.rx * (1 + m));
+    let y1 = sy2img(OVAL.cy + OVAL.ry * (1 + m));
+    x0 = Math.max(0, Math.floor(x0));
+    y0 = Math.max(0, Math.floor(y0));
+    x1 = Math.min(iw, Math.ceil(x1));
+    y1 = Math.min(ih, Math.ceil(y1));
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (w < 60 || h < 60) {
+      return null;
+    }
+    if (w >= iw * 0.97 && h >= ih * 0.97) {
+      return null; // already basically the whole image
+    }
+    return {x: x0, y: y0, w, h};
+  } catch (e) {
+    return null;
+  }
+}
 
 export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured, onCancel}) {
   const {t: tr} = useLang();
@@ -116,7 +160,10 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
         Alert.alert(tr('captureFailed'), tr('captureFailedBody'));
         return;
       }
-      await onCaptured(uri);
+      // Map the framed oval to photo pixels so matching can focus on the face
+      // region (best-effort; null means match the full image).
+      const roi = await computeOvalRoi(uri);
+      await onCaptured(uri, roi);
     } finally {
       if (alive.current) {
         setBusy(false);

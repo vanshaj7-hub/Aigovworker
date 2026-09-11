@@ -413,7 +413,7 @@ function Shell() {
   );
 
   const onCaptured = useCallback(
-    async uri => {
+    async (uri, roi) => {
       const worker = active;
       if (!worker) {
         return;
@@ -457,11 +457,12 @@ function Shell() {
         return;
       }
 
-      // 3. Identity. The face is detected inside the FULL captured image (we keep
-      // the whole image — only the embedding is computed from the found face).
+      // 3. Identity. Match against the face the supervisor framed in the oval
+      // (roi); the embedding is still computed from the detected, eye-aligned
+      // face. We keep the FULL image for the record — only matching uses the roi.
       let embedding;
       try {
-        const out = await extractFaceEmbedding(uri);
+        const out = await extractFaceEmbedding(uri, {roi});
         embedding = out.embedding;
       } catch (err) {
         // No / unclear face — mark Absent for now; the supervisor can retry.
@@ -874,6 +875,31 @@ function Shell() {
               referenceUrl: fields.referenceUrl,
             });
             if (!r || r.ok || r.skipped) {
+              // The reference photo changed: drop the cached embedding so the next
+              // match rebuilds it from the NEW photo (otherwise we keep matching
+              // against the old face), and update the roster image immediately from
+              // the URL we just uploaded — the backend list can lag a moment, which
+              // is why the new photo sometimes didn't appear on Workers / Mark
+              // attendance until a later refresh.
+              const key = fields.workerId;
+              delete refCache.current[key];
+              const newUrl = r && r.photoUrl;
+              if (newUrl) {
+                setData(d => ({
+                  ...d,
+                  workers: (d.workers || []).map(w =>
+                    (w.workerId != null ? w.workerId : w.id) === key
+                      ? {
+                          ...w,
+                          photoUri: newUrl,
+                          referenceUrl: newUrl,
+                          embedding: null,
+                          onboardingCompleted: true,
+                        }
+                      : w,
+                  ),
+                }));
+              }
               Alert.alert(tr('editWorker'), tr('workerUpdated', {name: fields.fullName}));
             } else {
               Alert.alert(tr('editWorker'), tr('workerUpdateFailed', {msg: r.message || ''}));

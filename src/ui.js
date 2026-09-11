@@ -322,14 +322,36 @@ export function InfoBlock({icon, children, style}) {
 /* ------------------------------------------------------------------ pieces */
 
 export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
-  const [failed, setFailed] = useState(false);
-  // Fall back to initials if the photo cannot load (stale local path, network),
-  // so a missing image never leaves a blank circle.
-  if (uri && !failed) {
+  // Track the specific URI that failed, not a sticky boolean — otherwise once a
+  // photo failed to load (e.g. a just-uploaded URL that 404s for a moment) the
+  // circle stayed on initials forever, even after the worker's photo changed to a
+  // valid URL. For a remote photo we also retry once after a short delay, since a
+  // freshly uploaded image can be briefly unavailable.
+  const [failedUri, setFailedUri] = useState(null);
+  const [nonce, setNonce] = useState(0);
+  const retried = useRef(false);
+  useEffect(() => {
+    setFailedUri(null);
+    setNonce(0);
+    retried.current = false;
+  }, [uri]);
+
+  const isRemote = !!uri && /^https?:/i.test(uri);
+  if (uri && failedUri !== uri) {
+    const src =
+      isRemote && nonce ? `${uri}${uri.includes('?') ? '&' : '?'}_r=${nonce}` : uri;
     return (
       <Image
-        source={{uri}}
-        onError={() => setFailed(true)}
+        key={src}
+        source={{uri: src}}
+        onError={() => {
+          if (isRemote && !retried.current) {
+            retried.current = true;
+            setTimeout(() => setNonce(n => n + 1), 1200);
+          } else {
+            setFailedUri(uri);
+          }
+        }}
         style={{width: size, height: size, borderRadius: size / 2}}
       />
     );

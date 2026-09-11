@@ -16,12 +16,15 @@ import {
   sampleRGB,
 } from './domain/faceMath';
 
-// Cosine similarity required to count as the same person: only a match above 70%
+// Cosine similarity required to count as the same person: a match above 65%
 // marks the worker Present; anything at or below is treated as not matched (marked
-// Absent, retryable). Offline testing on the real model put genuine captures at
-// ~0.88+ and different people below ~0.27, so 0.70 keeps a wide margin over
-// impostors. Lower toward 0.5-0.6 if genuine workers get wrongly rejected.
-export const MATCH_THRESHOLD = 0.7;
+// Absent, retryable). Real on-device captures (front-facing worker, variable
+// light, jpeg) sit lower than the clean offline pairs did, and 0.70 was rejecting
+// genuine same-person captures (seen ~0.66 with only a shirt change), so 0.65
+// gives realistic captures room while still separating different people (typical
+// impostors land well under ~0.4). Lower toward 0.55-0.6 only if genuine workers
+// are still rejected; raise if a wrong person is ever accepted.
+export const MATCH_THRESHOLD = 0.65;
 
 // Resolution of the intermediate square crop we decode and sample from. Larger
 // than the model input so the alignment resampling has detail to work with.
@@ -91,13 +94,45 @@ function embed(model, tensor) {
 }
 
 /**
- * Full pipeline: detect the prominent face, align it by its eyes onto the
- * canonical template (falling back to the bounding box when landmarks are
- * missing), resample to the model input with bilinear filtering, and return the
+ * Crop the image to a rectangle (in image pixels) at native resolution, no
+ * resize — used to restrict matching to the face region the supervisor framed in
+ * the on-screen oval. Cropping away the background also stops a bystander's face
+ * from tripping the MULTIPLE_FACES guard.
+ */
+async function cropToRoi(photoUri, roi) {
+  const crop = await ImageEditor.cropImage(photoUri, {
+    offset: {x: Math.max(0, Math.round(roi.x)), y: Math.max(0, Math.round(roi.y))},
+    size: {width: Math.round(roi.w), height: Math.round(roi.h)},
+    format: 'jpeg',
+    quality: 0.98,
+  });
+  return typeof crop === 'string' ? crop : crop.uri;
+}
+
+/**
+ * Detect the prominent face, align it by its eyes onto the canonical template,
+ * resample to the model input with bilinear filtering, and return the
  * L2-normalized embedding averaged with its horizontal mirror for robustness.
  * Also returns a square face crop URI for display.
+ *
+ * Pass `opts.roi` ({x, y, w, h} in image pixels — the oval region on the capture
+ * screen) to match against only that region. If the ROI has no usable face (e.g.
+ * a bad crop) we fall back to the whole image, so ROI can only help, never regress.
  */
-export async function extractFaceEmbedding(photoUri) {
+export async function extractFaceEmbedding(photoUri, opts = {}) {
+  if (opts && opts.roi) {
+    try {
+      const roiUri = await cropToRoi(photoUri, opts.roi);
+      return await extractFromImage(roiUri);
+    } catch (e) {
+      // ROI produced no clean face (or the crop failed) — fall through and try the
+      // whole frame, which is exactly what we would have done without an ROI.
+    }
+  }
+  return await extractFromImage(photoUri);
+}
+
+async function extractFromImage(photoUri) {
   const model = await getModel();
   const face = await pickProminentFace(photoUri);
   const {width: imgW, height: imgH} = await getImageSize(photoUri);
