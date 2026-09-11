@@ -1,26 +1,29 @@
-import {Image} from 'react-native';
+import {Image, NativeModules} from 'react-native';
 import FaceDetection from '@react-native-ml-kit/face-detection';
 import ImageEditor from '@react-native-community/image-editor';
 import RNFS from 'react-native-fs';
-import {decode as decodeJpeg} from 'jpeg-js';
-import {toByteArray} from 'base64-js';
-import {loadTensorflowModel} from 'react-native-fast-tflite';
 import {
   MAX_BRIGHTNESS,
   MIN_BRIGHTNESS,
   MIN_SHARPNESS,
-  OUT,
   averageEmbeddings,
-  bboxInverseMap,
   computeSquareCrop,
   cosineSimilarity as cosine,
-  eyeAlignInverseMap,
   eyeGeometryPlausible,
-  flipTensorH,
-  l2normalize,
-  sampleRGB,
-  tensorQuality,
 } from './domain/faceMath';
+
+// Face alignment (2-point similarity warp against the ArcFace template),
+// pixel normalization and TFLite inference all run natively (see
+// android/app/src/main/java/com/attendanceapp/facenative/FaceEmbedModule.kt)
+// instead of the hand-rolled JS crop/decode/bilinear-sample pipeline this used
+// to be — Android's own Bitmap/Canvas/Matrix APIs are far more battle-tested
+// than a per-pixel JS sampler for this. Detection/landmarks (ML Kit) and the
+// initial square crop (ImageEditor.cropImage, which already handles
+// EXIF/orientation correctly) still happen here in JS; only the alignment
+// warp, normalization and model call moved native. Same bundled model, same
+// alignment template and normalization convention as before, so existing
+// enrolled reference embeddings stay valid — nothing needs re-enrolling.
+const {FaceEmbed} = NativeModules;
 
 // Cosine similarity required to count as the same person: only a match above 70%
 // marks the worker Present; anything at or below is treated as not matched (marked
@@ -29,8 +32,9 @@ import {
 // impostors. Lower toward 0.5-0.6 if genuine workers get wrongly rejected.
 export const MATCH_THRESHOLD = 0.7;
 
-// Resolution of the intermediate square crop we decode and sample from. Larger
-// than the model input so the alignment resampling has detail to work with.
+// Resolution of the intermediate square crop handed to the native module.
+// Larger than the model's 112x112 input so the alignment warp has detail to
+// work with.
 const DECODE = 256;
 
 // Number of photos captured per worker enrollment/reference update, averaged
@@ -38,15 +42,6 @@ const DECODE = 256;
 export const REFERENCE_SHOTS = 3;
 
 export const cosineSimilarity = cosine;
-
-let modelPromise = null;
-
-export function getModel() {
-  if (!modelPromise) {
-    modelPromise = loadTensorflowModel(require('./assets/mobile_face_net.tflite'));
-  }
-  return modelPromise;
-}
 
 function getImageSize(uri) {
   return new Promise((resolve, reject) => {
@@ -111,34 +106,14 @@ async function pickProminentFace(photoUri) {
 }
 
 /**
- * Run the model on a HWC [-1,1] tensor and return the raw output vector.
- * react-native-fast-tflite's native call has occasionally been seen to throw a
- * raw, one-off native error under load (e.g. contention with the ML Kit calls
- * also running); a single retry clears a transient hiccup, and a real failure
- * is normalized to MODEL_ERROR instead of leaking a raw native string that
- * looks different — and unrecognisable — every time it happens.
- */
-function embed(model, tensor) {
-  try {
-    return Array.from(model.runSync([tensor])[0]);
-  } catch (e) {
-    try {
-      return Array.from(model.runSync([tensor])[0]);
-    } catch (e2) {
-      throw new Error('MODEL_ERROR');
-    }
-  }
-}
-
-/**
- * Full pipeline: detect the prominent face, align it by its eyes onto the
- * canonical template (falling back to the bounding box when landmarks are
- * missing), resample to the model input with bilinear filtering, and return the
- * L2-normalized embedding averaged with its horizontal mirror for robustness,
- * plus the blur/exposure quality score computed on those same pixels.
+ * Full pipeline: detect the prominent face, crop a square region around it
+ * (ImageEditor.cropImage — handles EXIF/orientation), then hand that crop plus
+ * the two eye positions to the native module, which aligns them onto the
+ * canonical ArcFace template, runs the model, and returns the L2-normalized
+ * embedding (averaged with its horizontal mirror) plus a blur/exposure
+ * quality score computed on the same aligned pixels.
  */
 export async function extractFaceEmbedding(photoUri) {
-  const model = await getModel();
   const face = await pickProminentFace(photoUri);
   const {width: imgW, height: imgH} = await getImageSize(photoUri);
 
@@ -167,56 +142,33 @@ export async function extractFaceEmbedding(photoUri) {
   }
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
-  const base64 = await RNFS.readFile(cropUri, 'base64');
-  // The crop file is only needed to get these bytes into memory — nothing
-  // downstream reads it back from disk. Every capture used to leave one of
-  // these behind in the cache with nothing ever cleaning them up.
-  RNFS.unlink(cropUri).catch(() => {});
-  const {width: dw, height: dh, data} = decodeJpeg(toByteArray(base64), {useTArray: true});
+  // pickProminentFace already guarantees both eye landmarks are present (it
+  // throws NO_EYE_LANDMARKS otherwise), so there is no bbox-only fallback path
+  // to carry over here. Coordinates are passed relative to the crop's
+  // top-left corner, in the ORIGINAL photo's pixel units — the native module
+  // derives its own scale factor from the actual decoded bitmap width, the
+  // same defensive real-vs-requested-size handling this used to do in JS.
+  const {leftEye, rightEye} = face.landmarks;
 
-  // original px -> decoded crop px (use the real decoded dims, not the request).
-  const scaleX = dw / cropSize;
-  const scaleY = dh / cropSize;
-  const lm = face.landmarks || {};
-  const le = lm.leftEye && lm.leftEye.position;
-  const re = lm.rightEye && lm.rightEye.position;
-
-  let mapFn;
-  if (le && re) {
-    // Eye points in decoded-crop coordinates. Order them by image position
-    // (left-most eye -> left template point) rather than ML Kit's subject-relative
-    // left/right naming, so the aligned face keeps its true orientation.
-    const a = {x: (le.x - cropX) * scaleX, y: (le.y - cropY) * scaleY};
-    const b = {x: (re.x - cropX) * scaleX, y: (re.y - cropY) * scaleY};
-    const [imgLeft, imgRight] = a.x <= b.x ? [a, b] : [b, a];
-    mapFn = eyeAlignInverseMap(imgLeft, imgRight);
-  } else {
-    mapFn = bboxInverseMap({
-      x: (face.frame.left - cropX) * scaleX,
-      y: (face.frame.top - cropY) * scaleY,
-      w: face.frame.width * scaleX,
-      h: face.frame.height * scaleY,
+  let result;
+  try {
+    result = await FaceEmbed.extractEmbedding(cropUri, {
+      leftEyeX: leftEye.position.x - cropX,
+      leftEyeY: leftEye.position.y - cropY,
+      rightEyeX: rightEye.position.x - cropX,
+      rightEyeY: rightEye.position.y - cropY,
+      cropSize,
     });
+  } catch (e) {
+    throw new Error('MODEL_ERROR');
+  } finally {
+    RNFS.unlink(cropUri).catch(() => {});
   }
 
-  // Build the aligned [-1,1] RGB tensor.
-  const input = new Float32Array(OUT * OUT * 3);
-  for (let oy = 0; oy < OUT; oy++) {
-    for (let ox = 0; ox < OUT; ox++) {
-      const [sx, sy] = mapFn(ox, oy);
-      const [r, g, b] = sampleRGB(data, dw, dh, sx, sy);
-      const di = (oy * OUT + ox) * 3;
-      input[di] = (r - 127.5) / 127.5;
-      input[di + 1] = (g - 127.5) / 127.5;
-      input[di + 2] = (b - 127.5) / 127.5;
-    }
-  }
-
-  // Reject capture conditions the model was never going to do well on, using
-  // the exact pixels it would be fed — computed before running the (more
-  // expensive) model at all. Thresholds are starting points; tune them from
-  // real captures (see storage.js's match-log export).
-  const quality = tensorQuality(input);
+  // Reject capture conditions the model was never going to do well on.
+  // Thresholds are starting points; tune them from real captures (see
+  // storage.js's match-log export).
+  const quality = {sharpness: result.sharpness, brightness: result.brightness};
   if (quality.sharpness < MIN_SHARPNESS) {
     throw new Error('LOW_QUALITY_BLUR');
   }
@@ -227,12 +179,7 @@ export async function extractFaceEmbedding(photoUri) {
     throw new Error('LOW_QUALITY_BRIGHT');
   }
 
-  // Average the embedding with its horizontal mirror (test-time augmentation) —
-  // a cheap, standard way to get a more stable face representation.
-  const e1 = embed(model, input);
-  const e2 = embed(model, flipTensorH(input, OUT, OUT, 3));
-  const avg = e1.map((v, i) => (v + e2[i]) / 2);
-  return {embedding: l2normalize(avg), quality};
+  return {embedding: result.embedding, quality};
 }
 
 /**

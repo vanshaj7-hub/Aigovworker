@@ -97,6 +97,11 @@ android {
         versionCode 28
         versionName "4.5"
     }
+    // The native face-embedding model (assets/mobile_face_net.tflite) must stay
+    // uncompressed in the APK so it can be read as a contiguous file.
+    androidResources {
+        noCompress += "tflite"
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -134,5 +139,10 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Native face-embedding pipeline (see FaceEmbedModule.kt): alignment and
+    // TFLite inference done in Kotlin via Bitmap/Canvas/Matrix instead of a
+    // hand-rolled JS pixel sampler, using the app's existing bundled model.
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
 }
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
