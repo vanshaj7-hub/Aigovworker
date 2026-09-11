@@ -54,13 +54,24 @@ async function pickProminentFace(photoUri) {
   if (!faces || faces.length === 0) {
     throw new Error('NO_FACE');
   }
-  // Prefer detections that actually have both eye landmarks: a real face has
-  // eyes, so this filters the occasional non-face region ML Kit reports (which is
-  // what caused wrong-area crops). Fall back to all detections if none qualify.
+  // Require detections that actually carry both eye landmark positions. A real
+  // face always has locatable eyes; a covered/dark or heavily blurred frame makes
+  // ML Kit occasionally report a "face" region with no landmarks. Those are false
+  // positives — and unalignable — so if none qualify we treat it as NO_FACE
+  // rather than running the model on noise (which used to yield a bogus ~50%
+  // "match" when the camera was covered). Eyes are also what the alignment needs.
   const withEyes = faces.filter(
-    f => f.landmarks && f.landmarks.leftEye && f.landmarks.rightEye,
+    f =>
+      f.landmarks &&
+      f.landmarks.leftEye &&
+      f.landmarks.leftEye.position &&
+      f.landmarks.rightEye &&
+      f.landmarks.rightEye.position,
   );
-  const pool = withEyes.length ? withEyes : faces;
+  if (withEyes.length === 0) {
+    throw new Error('NO_FACE');
+  }
+  const pool = withEyes;
   const byArea = [...pool].sort(
     (a, b) => b.frame.width * b.frame.height - a.frame.width * a.frame.height,
   );
@@ -96,14 +107,24 @@ export async function extractFaceEmbedding(photoUri) {
     throw new Error('NO_FACE');
   }
 
-  const crop = await ImageEditor.cropImage(photoUri, {
-    offset: {x: cropX, y: cropY},
-    size: {width: cropSize, height: cropSize},
-    displaySize: {width: DECODE, height: DECODE},
-    resizeMode: 'cover',
-    format: 'jpeg',
-    quality: 0.98,
-  });
+  let crop;
+  try {
+    crop = await ImageEditor.cropImage(photoUri, {
+      offset: {x: cropX, y: cropY},
+      size: {width: cropSize, height: cropSize},
+      displaySize: {width: DECODE, height: DECODE},
+      resizeMode: 'cover',
+      format: 'jpeg',
+      quality: 0.98,
+    });
+  } catch (e) {
+    // computeSquareCrop already clamps to integer, in-bounds coordinates, so this
+    // should not fire. But if the platform's decoded bitmap dimensions ever
+    // disagree with Image.getSize (e.g. EXIF-orientation differences), don't leak
+    // a raw native error like "y + height must be <= bitmap.height()" to the
+    // supervisor — treat it as no usable face so they simply retry.
+    throw new Error('NO_FACE');
+  }
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
   const base64 = await RNFS.readFile(cropUri, 'base64');

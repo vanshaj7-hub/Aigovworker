@@ -35,17 +35,28 @@ export function cosineSimilarity(a, b) {
  * A square region around the face (side = factor × the larger bbox dimension),
  * centred on the face and clamped inside the image. Kept square so the later
  * resize introduces no aspect distortion.
+ *
+ * All arithmetic is done as integers and the rectangle is clamped AFTER rounding,
+ * so the returned crop always satisfies 0 <= x, 0 <= y, x + size <= imgW and
+ * y + size <= imgH. Rounding x/y/size independently (the old behaviour) could push
+ * y + size one pixel past the image height when a large face sat near an edge,
+ * which made ImageEditor.cropImage throw "y + height must be <= bitmap.height()".
  */
 export function computeSquareCrop(face, imgW, imgH, factor = 2.0) {
+  const W = Math.floor(imgW);
+  const H = Math.floor(imgH);
   const cx = face.left + face.width / 2;
   const cy = face.top + face.height / 2;
   let size = Math.max(face.width, face.height) * factor;
-  size = Math.min(size, imgW, imgH);
-  let x = cx - size / 2;
-  let y = cy - size / 2;
-  x = Math.max(0, Math.min(x, imgW - size));
-  y = Math.max(0, Math.min(y, imgH - size));
-  return {x: Math.round(x), y: Math.round(y), size: Math.round(size)};
+  size = Math.floor(Math.min(size, W, H));
+  let x = Math.round(cx - size / 2);
+  let y = Math.round(cy - size / 2);
+  // Clamp the (already integer) rectangle fully inside the image.
+  if (x < 0) x = 0;
+  else if (x + size > W) x = W - size;
+  if (y < 0) y = 0;
+  else if (y + size > H) y = H - size;
+  return {x, y, size};
 }
 
 /**
