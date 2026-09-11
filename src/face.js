@@ -67,9 +67,10 @@ async function pickProminentFace(photoUri) {
   // Require detections that actually carry both eye landmark positions. A real
   // face always has locatable eyes; a covered/dark or heavily blurred frame makes
   // ML Kit occasionally report a "face" region with no landmarks. Those are false
-  // positives — and unalignable — so if none qualify we treat it as NO_FACE
-  // rather than running the model on noise (which used to yield a bogus ~50%
-  // "match" when the camera was covered). Eyes are also what the alignment needs.
+  // positives — and unalignable — so if none qualify we reject them (distinct
+  // from NO_FACE — ML Kit did find something, just not alignable) rather than
+  // running the model on noise (which used to yield a bogus ~50% "match" when
+  // the camera was covered). Eyes are also what the alignment needs.
   const withEyes = faces.filter(
     f =>
       f.landmarks &&
@@ -79,7 +80,7 @@ async function pickProminentFace(photoUri) {
       f.landmarks.rightEye.position,
   );
   if (withEyes.length === 0) {
-    throw new Error('NO_FACE');
+    throw new Error('NO_EYE_LANDMARKS');
   }
   const pool = withEyes;
   const byArea = [...pool].sort(
@@ -99,11 +100,12 @@ async function pickProminentFace(photoUri) {
   // threshold was originally validated against offline, and a bad pair still
   // "succeeds" here — it just warps the crop and narrows genuine/impostor
   // separation on-device (this is the leading suspect for impostors scoring
-  // 60-65% instead of the ~27% seen offline). Bad geometry is treated the same
-  // as NO_FACE: retake, rather than silently matching on a warped face.
+  // 60-65% instead of the ~27% seen offline). Logged as its own code (distinct
+  // from NO_FACE / NO_EYE_LANDMARKS) so the match-log CSV shows exactly which
+  // of the three actually fired instead of masking them all identically.
   const {leftEye, rightEye} = face.landmarks;
   if (!eyeGeometryPlausible(leftEye.position, rightEye.position, face.frame)) {
-    throw new Error('NO_FACE');
+    throw new Error('BAD_EYE_GEOMETRY');
   }
   return face;
 }
@@ -275,6 +277,8 @@ export function faceErrorMessage(err, tr) {
   const code = err && err.message;
   if (!tr) {
     if (code === 'NO_FACE') return 'No face detected.';
+    if (code === 'NO_EYE_LANDMARKS') return "Face detected, but the eyes aren't clear enough.";
+    if (code === 'BAD_EYE_GEOMETRY') return 'The face angle looks off.';
     if (code === 'MULTIPLE_FACES') return 'More than one face in the frame.';
     if (code === 'LOW_QUALITY_BLUR') return 'The photo is too blurry.';
     if (code === 'LOW_QUALITY_DARK') return 'The photo is too dark.';
@@ -284,6 +288,12 @@ export function faceErrorMessage(err, tr) {
   }
   if (code === 'NO_FACE') {
     return tr('noFaceBody');
+  }
+  if (code === 'NO_EYE_LANDMARKS') {
+    return tr('noEyesBody');
+  }
+  if (code === 'BAD_EYE_GEOMETRY') {
+    return tr('badGeometryBody');
   }
   if (code === 'MULTIPLE_FACES') {
     return tr('manyFacesBody');
