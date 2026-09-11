@@ -1,0 +1,52 @@
+name: Android build (debug APK)
+
+# Manual trigger only — it will NOT run on every push, so it never quietly burns
+# CI minutes. Run it from the GitHub "Actions" tab -> "Android build (debug
+# APK)" -> "Run workflow" when you want a fresh installable test build.
+#
+# Debug-signed (android/app/debug.keystore, committed on purpose — see
+# .gitignore) so the APK installs straight over any previous debug build
+# without an uninstall, the same as a local `npx react-native run-android`.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install JS dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Android SDK components
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
+
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AttendanceApp-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

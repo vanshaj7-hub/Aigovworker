@@ -4,7 +4,7 @@ import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {AppBar, BottomBar, Divider, Field, FilledButton, Icon, Screen, TextButton} from '../ui';
 import {addWorker} from '../storage';
-import {extractFaceEmbedding, faceErrorMessage} from '../face';
+import {REFERENCE_SHOTS, captureReferenceEmbedding, faceErrorMessage} from '../face';
 
 // Canonical values sent to the backend, regardless of the interface language.
 const GENDER_KEYS = ['Male', 'Female', 'Other'];
@@ -59,18 +59,19 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
     setDob(out);
   };
 
-  const captureReference = async getUri => {
-    const uri = await getUri();
-    if (!uri) {
-      return;
-    }
+  const captureReference = async getShot => {
     setBusy(true);
     try {
-      // Detect the face (for the embedding) but keep the FULL captured photo for
-      // upload/display — the reference image must not be cropped to the face.
-      const {embedding: emb} = await extractFaceEmbedding(uri);
-      setEmbedding(emb);
-      setPhoto(uri);
+      // Three shots averaged into one embedding, instead of trusting a single
+      // photo's lighting/pose/expression — see face.js's
+      // captureReferenceEmbedding. The sharpest of the three is kept as the
+      // uploaded/displayed reference photo (full frame, not cropped to the face).
+      const result = await captureReferenceEmbedding(getShot, {shots: REFERENCE_SHOTS});
+      if (!result) {
+        return; // cancelled before any usable shot
+      }
+      setEmbedding(result.embedding);
+      setPhoto(result.photoUri);
     } catch (err) {
       Alert.alert(tr('referencePhotograph'), faceErrorMessage(err, tr));
     } finally {

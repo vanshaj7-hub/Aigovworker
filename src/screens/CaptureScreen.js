@@ -18,13 +18,29 @@ import {useLang} from '../i18n';
 import {Icon} from '../ui';
 import {openAppSettings} from '../device';
 import {shiftLabel} from '../domain/shifts';
+import {avgEyeOpenProbability, initialLivenessState, nextLivenessState} from '../domain/liveness';
 
 const {width: SW, height: SH} = Dimensions.get('window');
 const OVAL = {cx: SW / 2, cy: SH * 0.40, rx: SW * 0.34, ry: SW * 0.44};
 
+// How long to wait for even one usable eye-open sample before giving up on the
+// liveness check and letting the shutter unlock anyway. A worker photo held up
+// to the camera cannot blink on cue, so requiring a blink deters that — but if
+// this ML Kit version/device never reports eye-open probabilities, failing
+// open (rather than permanently blocking attendance) is the safer default.
+const LIVENESS_TIMEOUT_MS = 8000;
+
 const uriOf = p => (p.startsWith('file://') || p.startsWith('content://') ? p : 'file://' + p);
 
-export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured, onCancel}) {
+export default function CaptureScreen({
+  worker,
+  ward,
+  shiftId,
+  fence,
+  requireLiveness,
+  onCaptured,
+  onCancel,
+}) {
   const {t: tr} = useLang();
   // `worker` can briefly be null while the parent swaps screens after a capture.
   const workerName = (worker && worker.name) || '';
@@ -36,10 +52,29 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
   const [camPermission, setCamPermission] = useState('checking'); // checking | granted | denied
   const device = useCameraDevice(position);
   const alive = useRef(true);
+  const livenessRef = useRef(initialLivenessState());
+  const [livenessConfirmed, setLivenessConfirmed] = useState(!requireLiveness);
+  const [livenessResetKey, setLivenessResetKey] = useState(0);
 
   useEffect(() => () => {
     alive.current = false;
   }, []);
+
+  // Fail-open: if no eye-open sample ever arrives (unsupported device/ML Kit
+  // version, or the preview snapshot loop never gets a usable frame), unlock
+  // the shutter anyway after a few seconds rather than blocking attendance
+  // entirely. Restarts each time capture() resets the check for a new attempt.
+  useEffect(() => {
+    if (!requireLiveness) {
+      return undefined;
+    }
+    const id = setTimeout(() => {
+      if (alive.current) {
+        setLivenessConfirmed(true);
+      }
+    }, LIVENESS_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [requireLiveness, livenessResetKey]);
 
   // Confirm camera access up front; if it is blocked, offer to open settings.
   useEffect(() => {
@@ -72,9 +107,17 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
           const faces = await FaceDetection.detect(uriOf(snapPath), {
             performanceMode: 'fast',
             minFaceSize: 0.15,
+            ...(requireLiveness ? {classificationMode: 'all'} : null),
           });
           if (alive.current) {
             setFaceState(faces && faces.length > 0 ? 'yes' : 'no');
+          }
+          if (requireLiveness && !livenessRef.current.confirmed) {
+            const sample = faces && faces.length ? avgEyeOpenProbability(faces[0]) : null;
+            livenessRef.current = nextLivenessState(livenessRef.current, sample);
+            if (livenessRef.current.confirmed && alive.current) {
+              setLivenessConfirmed(true);
+            }
           }
         }
       } catch (e) {
@@ -88,14 +131,14 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
     };
     timer = setInterval(tick, 2000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [busy, requireLiveness]);
 
   // Camera only. takePhoto gives a full-resolution frame; if the device or
   // emulator cannot service it we fall back to a preview snapshot (the same
   // call the face indicator uses, so it is known to work here) so a tap always
   // produces a photo rather than silently doing nothing.
   const capture = useCallback(async () => {
-    if (busy || !cam.current) {
+    if (busy || !cam.current || (requireLiveness && !livenessConfirmed)) {
       return;
     }
     setBusy(true);
@@ -121,8 +164,16 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
       if (alive.current) {
         setBusy(false);
       }
+      if (requireLiveness) {
+        // Require a fresh confirmed check for every attempt, not just once per
+        // screen visit — the same CaptureScreen instance stays mounted across a
+        // rejected-match retry.
+        livenessRef.current = initialLivenessState();
+        setLivenessConfirmed(false);
+        setLivenessResetKey(k => k + 1);
+      }
     }
-  }, [busy, torch, onCaptured, tr]);
+  }, [busy, torch, onCaptured, tr, requireLiveness, livenessConfirmed]);
 
   const inFence = fence.state !== 'outside';
 
@@ -213,12 +264,24 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
           icon={inFence ? 'my-location' : 'wrong-location'}
           label={inFence ? tr('insideGeofence') : tr('outsideGeofence')}
         />
-        <Text style={s.hint}>{tr('holdSteady')}</Text>
+        {requireLiveness ? (
+          <Chip
+            ok={livenessConfirmed}
+            icon={livenessConfirmed ? 'visibility' : 'remove-red-eye'}
+            label={livenessConfirmed ? tr('livenessConfirmed') : tr('livenessPending')}
+          />
+        ) : null}
+        <Text style={s.hint}>
+          {requireLiveness && !livenessConfirmed ? tr('livenessHint') : tr('holdSteady')}
+        </Text>
       </View>
 
       <View style={s.bottomBar}>
         <View style={{width: 27}} />
-        <Pressable onPress={() => capture()} disabled={busy || !device} style={s.shutterRing}>
+        <Pressable
+          onPress={() => capture()}
+          disabled={busy || !device || (requireLiveness && !livenessConfirmed)}
+          style={s.shutterRing}>
           <View style={s.shutter}>
             {busy ? <ActivityIndicator color={c.primary} /> : null}
           </View>

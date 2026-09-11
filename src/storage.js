@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {currentShift, dateKey} from './domain/shifts';
 import {digest} from './domain/password';
 import {buildDemoHistory, buildDemoWorkers} from './demo';
+import {appendMatchEntry, matchLogToCsv} from './domain/matchLog';
 
 const K = {
   ACCOUNTS: '@accounts',
@@ -14,6 +15,7 @@ const K = {
   SYNC: '@lastSync',
   ISSUES: '@boundaryIssues',
   LOCATION_CHECKED: '@locationChecked',
+  MATCH_LOG: '@matchLog',
 };
 
 // Credentials are issued by the IT team; the app never creates accounts.
@@ -320,6 +322,32 @@ export async function reportBoundaryIssue(payload) {
   const issues = await read(K.ISSUES, []);
   issues.unshift({id: uid('bi'), at: new Date().toISOString(), ...payload});
   return write(K.ISSUES, issues);
+}
+
+/* ------------------------------------------------------------- match log */
+//
+// A running, capped log of every attendance face-match attempt (matched,
+// rejected, or failed before a score existed) with its real cosine score.
+// MATCH_THRESHOLD and the quality-gate constants in faceMath.js were tuned by
+// guessing across several releases (see MATCH_THRESHOLD's commit history) —
+// this exists so the next tuning pass can instead be done from real
+// genuine/impostor score distributions collected on-device.
+
+export const getMatchLog = () => read(K.MATCH_LOG, []);
+
+export async function logMatchAttempt(entry) {
+  const log = await getMatchLog();
+  const next = appendMatchEntry(log, {at: new Date().toISOString(), ...entry});
+  await write(K.MATCH_LOG, next);
+  return next;
+}
+
+export async function matchLogCsv() {
+  return matchLogToCsv(await getMatchLog());
+}
+
+export async function clearMatchLog() {
+  return write(K.MATCH_LOG, []);
 }
 
 /* -------------------------------------------------------------- demo data */

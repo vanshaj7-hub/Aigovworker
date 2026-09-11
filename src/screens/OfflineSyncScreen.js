@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ScrollView, StyleSheet, Text, View} from 'react-native';
+import {ScrollView, Share, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {
@@ -14,9 +14,10 @@ import {
   Screen,
   SectionLabel,
   StatusPill,
+  TextButton,
 } from '../ui';
 import {clockTime, shiftLabel, timeOfDay} from '../domain/shifts';
-import {flushQueue} from '../storage';
+import {flushQueue, getMatchLog, matchLogCsv} from '../storage';
 
 export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, onSynced}) {
   const {t: tr} = useLang();
@@ -38,6 +39,22 @@ export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, 
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Shares the raw face-match attempt log (real cosine scores, matched or not)
+  // as text — the data MATCH_THRESHOLD should eventually be tuned from instead
+  // of guessed. Text share needs no file-provider setup, unlike sharing a file.
+  const exportLog = async () => {
+    const log = await getMatchLog();
+    if (!log.length) {
+      setNote(tr('matchLogEmpty'));
+      return;
+    }
+    try {
+      await Share.share({message: await matchLogCsv(), title: tr('exportMatchLog')});
+    } catch (e) {
+      // share sheet dismissed/failed — nothing to recover
     }
   };
 
@@ -98,6 +115,8 @@ export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, 
         </View>
 
         {note ? <Banner tone="info" icon="info-outline" body={note} style={{marginTop: 14}} /> : null}
+
+        <TextButton label={tr('exportMatchLog')} onPress={exportLog} style={{marginTop: 18}} />
       </ScrollView>
 
       <BottomBar>

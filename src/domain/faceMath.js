@@ -127,7 +127,7 @@ export function sampleRGB(data, w, h, x, y) {
   return out;
 }
 
-/** Horizontally mirror a HWC float tensor (used for flip test-time averaging). */
+/** Horizontally mirror a HWC float tensor (used for flip test-time augmentation). */
 export function flipTensorH(t, w, h, c) {
   const out = new Float32Array(t.length);
   for (let y = 0; y < h; y++) {
@@ -140,4 +140,95 @@ export function flipTensorH(t, w, h, c) {
     }
   }
   return out;
+}
+
+/* ------------------------------------------------------------- quality gates
+ *
+ * The on-device model is only as good as the landmarks and the crop it is fed.
+ * Field testing showed impostors scoring 60-65% (vs. the ~0.27 seen in offline
+ * Python validation) — the offline numbers were produced with high-precision
+ * MediaPipe iris landmarks, while the shipped app aligns on ML Kit's coarser
+ * face landmarks. A bad landmark pair still "succeeds" (no exception), it just
+ * produces a warped crop that narrows genuine/impostor separation. These gates
+ * catch the geometrically-implausible cases before they reach the model, and
+ * the blur/exposure gate catches capture conditions the model was never going
+ * to do well on either way.
+ *
+ * The specific numbers below are starting points, not measured constants —
+ * calibrate them from real captures (see storage.js's match-log export) the
+ * same way MATCH_THRESHOLD itself was tuned.
+ */
+
+export const EYE_DIST_RATIO_MIN = 0.28; // eyes implausibly close together for the face box
+export const EYE_DIST_RATIO_MAX = 0.62; // eyes implausibly far apart for the face box
+export const MAX_ROLL_DEG = 40; // beyond this, a genuine attendance photo — or the landmarks — can't be trusted
+
+/**
+ * Sanity-checks a detected eye pair against its face box before trusting it for
+ * alignment. Order-independent (leftEye/rightEye vs. image-left/image-right
+ * doesn't matter here, only their separation and tilt).
+ */
+export function eyeGeometryPlausible(L, R, face) {
+  const eyeDist = Math.hypot(R.x - L.x, R.y - L.y);
+  const boxSize = Math.max(face.width, face.height) || 1;
+  const ratio = eyeDist / boxSize;
+  if (!(ratio >= EYE_DIST_RATIO_MIN && ratio <= EYE_DIST_RATIO_MAX)) {
+    return false;
+  }
+  const rawDeg = Math.abs((Math.atan2(R.y - L.y, R.x - L.x) * 180) / Math.PI);
+  const roll = rawDeg > 90 ? 180 - rawDeg : rawDeg; // fold so eye order doesn't matter
+  return roll <= MAX_ROLL_DEG;
+}
+
+export const MIN_SHARPNESS = 15; // below this the aligned crop reads as motion-blurred/out-of-focus
+export const MIN_BRIGHTNESS = 35; // near-black frame (covered lens, heavy backlight/silhouette)
+export const MAX_BRIGHTNESS = 235; // blown-out highlights, no usable texture left
+
+/**
+ * Cheap blur/exposure score computed directly on the final aligned [-1,1] RGB
+ * tensor — the same pixels the embedding is computed from, so a bad score
+ * means the embedding itself is unreliable, not just the source photo.
+ * `sharpness` is a Laplacian-variance edge-energy measure (higher = crisper);
+ * `brightness` is the mean luma rescaled to 0-255.
+ */
+export function tensorQuality(tensor, w = OUT, h = OUT) {
+  const gray = new Float32Array(w * h);
+  let sum = 0;
+  for (let i = 0; i < w * h; i++) {
+    const o = i * 3;
+    const v = (tensor[o] + tensor[o + 1] + tensor[o + 2]) / 3;
+    gray[i] = v;
+    sum += v;
+  }
+  const brightness = (sum / (w * h)) * 127.5 + 127.5;
+  let lapSum = 0;
+  let lapSumSq = 0;
+  let n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+      lapSum += lap;
+      lapSumSq += lap * lap;
+      n++;
+    }
+  }
+  const mean = n ? lapSum / n : 0;
+  const variance = n ? lapSumSq / n - mean * mean : 0;
+  // Rescale from the tensor's [-1,1] range to an 8-bit-equivalent range so this
+  // reads like the standard Laplacian-variance blur metrics used elsewhere.
+  const sharpness = variance * (127.5 * 127.5);
+  return {brightness, sharpness};
+}
+
+/** Average multiple L2-normalized embeddings into one centroid, then re-normalize. */
+export function averageEmbeddings(embeddings) {
+  const dim = embeddings[0].length;
+  const out = new Array(dim).fill(0);
+  for (const e of embeddings) {
+    for (let i = 0; i < dim; i++) {
+      out[i] += e[i] / embeddings.length;
+    }
+  }
+  return l2normalize(out);
 }

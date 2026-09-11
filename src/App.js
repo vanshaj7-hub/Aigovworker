@@ -32,7 +32,15 @@ import {currentShift, dateKey, ongoingShift} from './domain/shifts';
 import {isDemoWorker} from './demo';
 import {USE_BACKEND} from './config';
 import * as svc from './session';
-import {MATCH_THRESHOLD, cosineSimilarity, extractFaceEmbedding, faceErrorMessage} from './face';
+import {
+  MATCH_THRESHOLD,
+  REFERENCE_SHOTS,
+  captureReferenceEmbedding,
+  cosineSimilarity,
+  extractFaceEmbedding,
+  faceErrorMessage,
+} from './face';
+import {logMatchAttempt} from './storage';
 
 import SignInScreen from './screens/SignInScreen';
 import ChangePasswordScreen from './screens/ChangePasswordScreen';
@@ -466,6 +474,15 @@ function Shell() {
       } catch (err) {
         // No / unclear face — mark Absent for now; the supervisor can retry.
         setFailed(m => ({...m, [worker.id]: true}));
+        logMatchAttempt({
+          workerId: worker.id,
+          workerName: worker.name,
+          outcome: 'error',
+          detail: (err && err.message) || 'UNKNOWN',
+          score: null,
+          verified: false,
+          demo: false,
+        }).catch(() => {});
         Alert.alert(
           err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
           `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
@@ -487,14 +504,20 @@ function Shell() {
           setFailed(m => ({...m, [worker.id]: true})); // Absent until a reference is added
           return;
         }
-        const refUri = await requestPhoto(tr('referenceFor', {name: worker.name}));
-        if (!refUri) {
-          setFailed(m => ({...m, [worker.id]: true}));
-          return;
-        }
         try {
-          const out = await extractFaceEmbedding(refUri);
-          reference = out.embedding;
+          // Three shots averaged into one reference, same as normal enrollment
+          // (see face.js's captureReferenceEmbedding) — a single photo taken
+          // under attendance-time pressure is an even worse reference than a
+          // deliberate onboarding photo, so it deserves the same robustness.
+          const refCapture = await captureReferenceEmbedding(
+            (i, total) => requestPhoto(tr('referenceForStep', {name: worker.name, n: i + 1, total})),
+            {shots: REFERENCE_SHOTS},
+          );
+          if (!refCapture) {
+            setFailed(m => ({...m, [worker.id]: true}));
+            return;
+          }
+          reference = refCapture.embedding;
           const key = worker.workerId != null ? worker.workerId : worker.id;
           refCache.current[key] = reference; // used for this session's matching
         } catch (err) {
@@ -509,6 +532,20 @@ function Shell() {
 
       // Verify the live capture against the reference. Always strict now.
       const sim = cosineSimilarity(embedding, reference);
+      // Every attempt is logged with its real score — matched or not — so the
+      // threshold and quality-gate constants can be calibrated from actual
+      // on-device genuine/impostor distributions instead of guessed (see
+      // storage.js's match-log export, and MATCH_THRESHOLD's own commit
+      // history for how much guessing already happened without this data).
+      logMatchAttempt({
+        workerId: worker.id,
+        workerName: worker.name,
+        outcome: sim >= MATCH_THRESHOLD ? 'matched' : 'rejected',
+        detail: null,
+        score: Math.round(sim * 1000) / 1000,
+        verified: sim >= MATCH_THRESHOLD,
+        demo: false,
+      }).catch(() => {});
       if (sim < MATCH_THRESHOLD) {
         // Face did not match — mark Absent and let the supervisor retry. Show the
         // actual match % (and the required %) so a near-miss is visible and the
@@ -556,15 +593,15 @@ function Shell() {
   // one: it is uploaded and saved via /edit-worker, which completes onboarding.
   const startOnboarding = useCallback(
     async worker => {
-      const refUri = await requestPhoto(tr('onboardReferenceFor', {name: worker.name}));
-      if (!refUri) {
-        return;
-      }
-      // Confirm a single clear face before uploading anything.
-      let embedding = null;
+      // Three shots averaged into one reference embedding (see face.js's
+      // captureReferenceEmbedding) instead of a single photo, which made the
+      // reference fragile to that one shot's lighting/pose/expression.
+      let refCapture;
       try {
-        const out = await extractFaceEmbedding(refUri);
-        embedding = out.embedding;
+        refCapture = await captureReferenceEmbedding(
+          (i, total) => requestPhoto(tr('onboardReferenceStep', {name: worker.name, n: i + 1, total})),
+          {shots: REFERENCE_SHOTS},
+        );
       } catch (err) {
         Alert.alert(
           err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
@@ -572,6 +609,10 @@ function Shell() {
         );
         return;
       }
+      if (!refCapture) {
+        return;
+      }
+      const {embedding, photoUri: refUri} = refCapture;
       const r = await svc.submitWorkerUpdate({
         supervisorId: session.supervisorId,
         wardId: data.ward && (data.ward.wardId || data.ward.number),
@@ -752,6 +793,9 @@ function Shell() {
           ward={data.ward}
           shiftId={shiftId}
           fence={fence}
+          // Demo workers have no real face to match against, so a blink check
+          // buys nothing there; only gate the real, fraud-relevant path.
+          requireLiveness={!!active && !isDemoWorker(active)}
           onCaptured={onCaptured}
           onCancel={() => setScreen('attendance')}
         />
@@ -838,7 +882,7 @@ function Shell() {
         <AddWorkerScreen
           worker={editWorker}
           onBack={() => setScreen('workers')}
-          openCamera={() => requestPhoto(tr('referencePhotograph'))}
+          openCamera={(i, total) => requestPhoto(tr('referencePhotoStep', {n: i + 1, total}))}
           onSaved={async (workers, worker) => {
             // Save to the backend and only report success once it actually
             // persists, so a worker never shows "saved" but vanish on restart.
