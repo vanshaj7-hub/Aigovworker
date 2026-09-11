@@ -48,6 +48,15 @@ export default function CaptureScreen({
   const [position, setPosition] = useState('back');
   const [torch, setTorch] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Synchronous (non-React-state) lock shared between the live face-indicator's
+  // periodic takeSnapshot() poll and the shutter's takePhoto(), so the two can
+  // never run concurrently against the same camera session. `busy` state alone
+  // doesn't cover this: a poll already in flight when the shutter is tapped was
+  // invoked under the old `busy === false` closure and won't see the update.
+  // Vision-camera doesn't support overlapping capture calls, and a snapshot
+  // racing the real capture is a plausible source of the stale/blank frames
+  // ("no face detected" on a clearly-framed photo) reported in the field.
+  const camOpRef = useRef(false);
   const [faceState, setFaceState] = useState('unknown'); // unknown | yes | no
   const [camPermission, setCamPermission] = useState('checking'); // checking | granted | denied
   const device = useCameraDevice(position);
@@ -95,10 +104,11 @@ export default function CaptureScreen({
     let timer = null;
     let running = false;
     const tick = async () => {
-      if (running || busy || !cam.current || !alive.current) {
+      if (running || busy || camOpRef.current || !cam.current || !alive.current) {
         return;
       }
       running = true;
+      camOpRef.current = true;
       let snapPath = null;
       try {
         const snap = await cam.current.takeSnapshot({quality: 35});
@@ -126,6 +136,7 @@ export default function CaptureScreen({
         if (snapPath) {
           RNFS.unlink(snapPath).catch(() => {});
         }
+        camOpRef.current = false;
         running = false;
       }
     };
@@ -138,10 +149,11 @@ export default function CaptureScreen({
   // call the face indicator uses, so it is known to work here) so a tap always
   // produces a photo rather than silently doing nothing.
   const capture = useCallback(async () => {
-    if (busy || !cam.current || (requireLiveness && !livenessConfirmed)) {
+    if (busy || camOpRef.current || !cam.current || (requireLiveness && !livenessConfirmed)) {
       return;
     }
     setBusy(true);
+    camOpRef.current = true;
     try {
       let uri = null;
       try {
@@ -161,6 +173,7 @@ export default function CaptureScreen({
       }
       await onCaptured(uri);
     } finally {
+      camOpRef.current = false;
       if (alive.current) {
         setBusy(false);
       }
