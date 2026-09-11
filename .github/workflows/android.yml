@@ -1,12 +1,16 @@
-name: Android build (debug APK)
+name: Android build (release APK)
 
 # Manual trigger only — it will NOT run on every push, so it never quietly burns
-# CI minutes. Run it from the GitHub "Actions" tab -> "Android build (debug
+# CI minutes. Run it from the GitHub "Actions" tab -> "Android build (release
 # APK)" -> "Run workflow" when you want a fresh installable test build.
 #
-# Debug-signed (android/app/debug.keystore, committed on purpose — see
-# .gitignore) so the APK installs straight over any previous debug build
-# without an uninstall, the same as a local `npx react-native run-android`.
+# Release (not debug) build: the JS bundle is compiled into the APK's assets,
+# so it installs and runs standalone on a phone with no Metro dev server
+# attached — a debug build instead loads its JS from `npx react-native start`
+# over the network and shows "Unable to load script" without it. No release
+# keystore is configured, so build.gradle's releaseSigningConfig falls back
+# to the committed debug.keystore (see android/app/build.gradle) — fine for
+# sideloading a test build, not for a Play Store release.
 on:
   workflow_dispatch:
 
@@ -38,15 +42,15 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125"
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AttendanceApp-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: AttendanceApp-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
