@@ -87,12 +87,17 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
       val path = cropPath.removePrefix("file://")
       cropBitmap = BitmapFactory.decodeFile(path) ?: throw RuntimeException("DECODE_FAILED")
 
+      // Use the real decoded width AND height (not a single width-derived
+      // scale assuming a perfectly square crop) — the same defensive
+      // real-vs-requested-size handling the old JS code did, since a crop
+      // library can return a bitmap slightly off-square from what was asked.
       val cropSizeRequested = alignment.getDouble("cropSize")
-      val scale = if (cropSizeRequested > 0) cropBitmap.width.toDouble() / cropSizeRequested else 1.0
-      val lx = (alignment.getDouble("leftEyeX") * scale).toFloat()
-      val ly = (alignment.getDouble("leftEyeY") * scale).toFloat()
-      val rx = (alignment.getDouble("rightEyeX") * scale).toFloat()
-      val ry = (alignment.getDouble("rightEyeY") * scale).toFloat()
+      val scaleX = if (cropSizeRequested > 0) cropBitmap.width.toDouble() / cropSizeRequested else 1.0
+      val scaleY = if (cropSizeRequested > 0) cropBitmap.height.toDouble() / cropSizeRequested else 1.0
+      val lx = (alignment.getDouble("leftEyeX") * scaleX).toFloat()
+      val ly = (alignment.getDouble("leftEyeY") * scaleY).toFloat()
+      val rx = (alignment.getDouble("rightEyeX") * scaleX).toFloat()
+      val ry = (alignment.getDouble("rightEyeY") * scaleY).toFloat()
 
       // Order by image position (left-most -> template-left eye), matching
       // faceMath.js's eyeAlignInverseMap: subject-relative left/right doesn't

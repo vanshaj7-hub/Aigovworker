@@ -160,7 +160,13 @@ export async function extractFaceEmbedding(photoUri) {
       cropSize,
     });
   } catch (e) {
-    throw new Error('MODEL_ERROR');
+    // Keep the native module's actual failure reason (e.g. DECODE_FAILED,
+    // ALIGN_FAILED, or a raw TFLite error) in the thrown code instead of
+    // collapsing it to a bare MODEL_ERROR — it still shows the same generic
+    // faceErrorMessage to the supervisor, but the match-log CSV's detail
+    // column now shows exactly what failed instead of just "MODEL_ERROR".
+    const nativeReason = (e && (e.code || e.message)) || 'UNKNOWN';
+    throw new Error(`MODEL_ERROR:${nativeReason}`);
   } finally {
     RNFS.unlink(cropUri).catch(() => {});
   }
@@ -222,6 +228,11 @@ export async function captureReferenceEmbedding(requestShot, {shots = REFERENCE_
 
 export function faceErrorMessage(err, tr) {
   const code = err && err.message;
+  // MODEL_ERROR carries the native module's specific failure reason as a
+  // ":"-suffixed detail (e.g. "MODEL_ERROR:ALIGN_FAILED") purely for the
+  // match-log CSV's detail column — the supervisor-facing message stays the
+  // same generic one regardless of which native step actually failed.
+  const isModelError = code === 'MODEL_ERROR' || (code && code.startsWith('MODEL_ERROR:'));
   if (!tr) {
     if (code === 'NO_FACE') return 'No face detected.';
     if (code === 'NO_EYE_LANDMARKS') return "Face detected, but the eyes aren't clear enough.";
@@ -230,7 +241,7 @@ export function faceErrorMessage(err, tr) {
     if (code === 'LOW_QUALITY_BLUR') return 'The photo is too blurry.';
     if (code === 'LOW_QUALITY_DARK') return 'The photo is too dark.';
     if (code === 'LOW_QUALITY_BRIGHT') return 'The photo is too bright/washed out.';
-    if (code === 'MODEL_ERROR') return 'Face processing failed. Please try again.';
+    if (isModelError) return 'Face processing failed. Please try again.';
     return `Face processing failed: ${code || 'unknown error'}`;
   }
   if (code === 'NO_FACE') {
@@ -254,7 +265,7 @@ export function faceErrorMessage(err, tr) {
   if (code === 'LOW_QUALITY_BRIGHT') {
     return tr('lowQualityBrightBody');
   }
-  if (code === 'MODEL_ERROR') {
+  if (isModelError) {
     return tr('modelErrorBody');
   }
   return `${tr('noFaceTitle')}: ${code || ''}`.trim();
