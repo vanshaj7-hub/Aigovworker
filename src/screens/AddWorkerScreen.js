@@ -94,6 +94,10 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
           fullName: worker.name,
           photoUri: photo, // https (unchanged) or file:// (newly captured)
           referenceUrl: worker.referenceUrl || null,
+          // Only set when a new photo was captured this edit — lets the caller
+          // refresh its in-memory match cache immediately instead of matching
+          // against the old reference until the app restarts.
+          embedding,
         });
       } finally {
         setBusy(false);

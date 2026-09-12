@@ -919,6 +919,25 @@ function Shell() {
             });
             if (!r || r.ok || r.skipped) {
               Alert.alert(tr('editWorker'), tr('workerUpdated', {name: fields.fullName}));
+              // Refresh this session's match cache immediately with the freshly
+              // captured embedding, and patch the roster's photo URL locally
+              // rather than only waiting on loadBackendWorkspace()'s re-fetch —
+              // otherwise a worker kept matching against (or showing) the old
+              // reference photo until the app was restarted.
+              if (fields.embedding && fields.embedding.length) {
+                refCache.current[fields.workerId] = fields.embedding;
+              }
+              const freshUrl = (r && r.photoUrl) || fields.referenceUrl;
+              if (freshUrl) {
+                setData(d => ({
+                  ...d,
+                  workers: (d.workers || []).map(w =>
+                    (w.workerId != null ? w.workerId : w.id) === fields.workerId
+                      ? {...w, photoUri: freshUrl, referenceUrl: freshUrl}
+                      : w,
+                  ),
+                }));
+              }
             } else {
               Alert.alert(tr('editWorker'), tr('workerUpdateFailed', {msg: r.message || ''}));
             }
