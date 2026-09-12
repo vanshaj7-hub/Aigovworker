@@ -97,10 +97,12 @@ android {
         versionCode 28
         versionName "4.5"
     }
-    // The native face-embedding model (assets/mobile_face_net.tflite) must stay
-    // uncompressed in the APK so it can be read as a contiguous file.
+    // The native face-embedding model (assets/mobile_face_net.tflite) and the
+    // MediaPipe face landmarker model (assets/face_landmarker.task) must stay
+    // uncompressed in the APK so they can be read/mmap'd as contiguous files.
     androidResources {
         noCompress += "tflite"
+        noCompress += "task"
     }
     signingConfigs {
         debug {
@@ -144,5 +146,17 @@ dependencies {
     // TFLite inference done in Kotlin via Bitmap/Canvas/Matrix instead of a
     // hand-rolled JS pixel sampler, using the app's existing bundled model.
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+
+    // MediaPipe Face Landmarker: higher-precision eye/face landmarks for the
+    // alignment step than @react-native-ml-kit/face-detection's lightweight
+    // detector provides. An offline validation (real labeled same/different-
+    // person photos, this same embedding model+alignment math) showed a large
+    // genuine/impostor gap with these landmarks vs. a much narrower one with
+    // ML Kit's on real on-device match-log data — this is the validated fix
+    // for that gap, not a guess. ML Kit stays in use for CaptureScreen's live
+    // preview indicator and blink-liveness check, where landmark precision
+    // doesn't matter and its lighter weight suits polling every 2s.
+    implementation("com.google.mediapipe:tasks-vision:1.0.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 }
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")

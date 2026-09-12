@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
+import androidx.exifinterface.media.ExifInterface
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -12,33 +13,43 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.sqrt
 import org.tensorflow.lite.Interpreter
 
 /**
- * Native replacement for the JS-side face alignment + TFLite inference that
- * used to live in face.js's extractFaceEmbedding(). Face detection/landmarks
- * and the initial square crop still happen in JS via ML Kit and
- * ImageEditor.cropImage (already correctly handles EXIF/orientation); this
- * module takes that already-cropped square photo plus the available ArcFace
- * landmarks (eyes always; nose/mouth corners when ML Kit reports them) and
- * does the rest natively: a least-squares similarity alignment via
- * fitSimilarity + Canvas/Matrix (Android's own well-tested affine warp,
- * instead of a hand-rolled per-pixel JS bilinear sampler), pixel
- * normalization, and TFLite inference.
+ * Native module for the face-matching pipeline's two on-device-heavy steps:
  *
- * Aligning across all 5 landmarks instead of just the 2 eyes spreads
- * detector noise across five measurements rather than the whole alignment
- * being fully (and thus fully noise-sensitively) determined by only two —
- * intended to reduce match-score variance between captures of the same face.
+ * 1. detectFace(): face + eye-landmark detection via MediaPipe's Face
+ *    Landmarker (assets/face_landmarker.task) instead of
+ *    @react-native-ml-kit/face-detection. An offline validation (real labeled
+ *    same/different-person photos, this exact embedding model + alignment
+ *    math) showed a large genuine/impostor separation with MediaPipe's
+ *    landmarks vs. a much narrower one with ML Kit's, on real on-device
+ *    match-log data — this is that validated fix, not a guess. ML Kit stays
+ *    in use in CaptureScreen.js for the live preview indicator and blink-
+ *    liveness check, where landmark precision doesn't matter and its
+ *    lighter weight suits polling every 2s.
+ *
+ * 2. extractEmbedding(): takes a square crop (from face.js's
+ *    computeSquareCrop + ImageEditor.cropImage, which already handles
+ *    EXIF/orientation correctly) plus the two eye positions detectFace()
+ *    found, and does the rest natively: a least-squares similarity alignment
+ *    via fitSimilarity + Canvas/Matrix (Android's own well-tested affine
+ *    warp, instead of a hand-rolled per-pixel JS bilinear sampler), pixel
+ *    normalization, and TFLite inference.
  *
  * The alignment targets (TGT_*) match src/domain/faceMath.js's ArcFace
- * 5-point template exactly, and fitSimilarity here is a direct port of the
- * same function there (unit-tested in faceMath.test.js against known
- * transforms before being ported, since this Kotlin copy itself has no way
- * to be unit-tested in this environment). Normalization uses the standard
+ * template exactly, and fitSimilarity here is a direct port of the same
+ * function there (unit-tested in faceMath.test.js against known transforms
+ * before being ported, since this Kotlin copy itself has no way to be
+ * unit-tested in this environment). Normalization uses the standard
  * ArcFace/InsightFace convention ((pixel - 127.5) / 128.0), and this loads
  * the same bundled model (assets/mobile_face_net.tflite, copied here into
  * the native assets folder) — so existing enrolled reference embeddings stay
@@ -53,10 +64,18 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
     private const val OUT = 112
     private val TGT_LEFT_EYE = floatArrayOf(38.2946f, 51.6963f)
     private val TGT_RIGHT_EYE = floatArrayOf(73.5318f, 51.5014f)
-    private val TGT_NOSE = floatArrayOf(56.0252f, 71.7366f)
-    private val TGT_MOUTH_LEFT = floatArrayOf(41.5493f, 92.3655f)
-    private val TGT_MOUTH_RIGHT = floatArrayOf(70.7299f, 92.2041f)
     private const val MODEL_ASSET = "mobile_face_net.tflite"
+    private const val LANDMARKER_ASSET = "face_landmarker.task"
+    private const val MAX_FACES = 2
+
+    // MediaPipe's 478-point face mesh topology (with iris refinement, which
+    // this task model includes): 468 = right iris center, 473 = left iris
+    // center, in MediaPipe's own (subject-relative) naming — same as ML
+    // Kit's, we don't care which is anatomically which, only the two
+    // positions; left/right assignment to the template is resolved by
+    // x-sort in extractEmbedding, unchanged from before.
+    private const val RIGHT_IRIS_INDEX = 468
+    private const val LEFT_IRIS_INDEX = 473
 
     /**
      * Least-squares similarity transform (uniform scale + rotation +
@@ -119,15 +138,152 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  @Volatile private var faceLandmarker: FaceLandmarker? = null
+
+  private fun getFaceLandmarker(): FaceLandmarker {
+    faceLandmarker?.let {
+      return it
+    }
+    synchronized(this) {
+      faceLandmarker?.let {
+        return it
+      }
+      val baseOptions = BaseOptions.builder().setModelAssetPath(LANDMARKER_ASSET).build()
+      val options =
+          FaceLandmarker.FaceLandmarkerOptions.builder()
+              .setBaseOptions(baseOptions)
+              .setRunningMode(RunningMode.IMAGE)
+              .setNumFaces(MAX_FACES)
+              .setMinFaceDetectionConfidence(0.3f)
+              .setMinFacePresenceConfidence(0.3f)
+              .build()
+      val created = FaceLandmarker.createFromOptions(reactContext, options)
+      faceLandmarker = created
+      return created
+    }
+  }
+
   /**
-   * `alignment` carries leftEyeX/leftEyeY/rightEyeX/rightEyeY (always) and
-   * noseX/noseY/mouthLeftX/mouthLeftY/mouthRightX/mouthRightY (when face.js
-   * had them available) — all as offsets from the crop's top-left corner, in
-   * the ORIGINAL photo's pixel units, i.e. before any resampling — plus
-   * cropSize (the crop box's requested side length in those same units). The
-   * actual decoded bitmap can differ slightly from the requested size, so
-   * the scale factor is derived from the real decoded width/height, the same
-   * defensive approach face.js used before this change.
+   * Decodes a bitmap from `path` and rotates it to upright orientation per
+   * its EXIF tag. Needed because BitmapFactory.decodeFile ignores EXIF, but
+   * every downstream coordinate consumer (computeSquareCrop, ImageEditor.
+   * cropImage in face.js) works in the "upright" space a phone photo's EXIF
+   * orientation defines — the same convention @react-native-ml-kit/
+   * face-detection's InputImage.fromFilePath already followed, which this
+   * must match now that detection moved to MediaPipe (which just takes a
+   * plain Bitmap with no EXIF awareness of its own).
+   */
+  private fun decodeUprightBitmap(path: String): Bitmap {
+    val bitmap = BitmapFactory.decodeFile(path) ?: throw RuntimeException("DECODE_FAILED")
+    val orientation =
+        try {
+          ExifInterface(path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (e: Exception) {
+          ExifInterface.ORIENTATION_NORMAL
+        }
+    val degrees =
+        when (orientation) {
+          ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+          ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+          ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+          else -> 0f
+        }
+    if (degrees == 0f) {
+      return bitmap
+    }
+    val matrix = Matrix()
+    matrix.postRotate(degrees)
+    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    bitmap.recycle()
+    return rotated
+  }
+
+  /**
+   * Detects the prominent face in the ORIGINAL (uncropped) photo and returns
+   * its bounding box plus the two eye positions, all in that upright photo's
+   * pixel coordinates — the same shape/space @react-native-ml-kit/
+   * face-detection's result used to provide, so face.js's downstream
+   * computeSquareCrop/ImageEditor.cropImage/extractEmbedding call sites don't
+   * need to change. Rejects with "NO_FACE" when nothing is detected (mapped
+   * by face.js to the existing NO_FACE error code); any other failure
+   * rejects with "MODEL_ERROR".
+   */
+  @ReactMethod
+  fun detectFace(photoPath: String, promise: Promise) {
+    var bitmap: Bitmap? = null
+    try {
+      val path = photoPath.removePrefix("file://")
+      bitmap = decodeUprightBitmap(path)
+      val mpImage = BitmapImageBuilder(bitmap).build()
+      val result = getFaceLandmarker().detect(mpImage)
+      val faces = result.faceLandmarks()
+      if (faces.isEmpty()) {
+        promise.reject("NO_FACE", "no face detected")
+        return
+      }
+
+      val bboxes = faces.map { bboxOf(it, bitmap.width, bitmap.height) }
+      val areas = bboxes.map { it[2] * it[3] }
+      val order = areas.indices.sortedByDescending { areas[it] }
+      val primaryIdx = order[0]
+      val primary = faces[primaryIdx]
+      val primaryBbox = bboxes[primaryIdx]
+
+      val multipleFaces = faces.size > 1 && areas[order[1]] > areas[primaryIdx] * 0.5f
+
+      val leftIris = primary[LEFT_IRIS_INDEX]
+      val rightIris = primary[RIGHT_IRIS_INDEX]
+
+      val out: WritableMap = Arguments.createMap()
+      val frame: WritableMap = Arguments.createMap()
+      frame.putDouble("left", primaryBbox[0].toDouble())
+      frame.putDouble("top", primaryBbox[1].toDouble())
+      frame.putDouble("width", primaryBbox[2].toDouble())
+      frame.putDouble("height", primaryBbox[3].toDouble())
+      out.putMap("frame", frame)
+      out.putDouble("leftEyeX", (leftIris.x() * bitmap.width).toDouble())
+      out.putDouble("leftEyeY", (leftIris.y() * bitmap.height).toDouble())
+      out.putDouble("rightEyeX", (rightIris.x() * bitmap.width).toDouble())
+      out.putDouble("rightEyeY", (rightIris.y() * bitmap.height).toDouble())
+      out.putBoolean("multipleFaces", multipleFaces)
+      promise.resolve(out)
+    } catch (e: Exception) {
+      promise.reject("MODEL_ERROR", e.message, e)
+    } finally {
+      bitmap?.recycle()
+    }
+  }
+
+  /** [left, top, width, height] bounding box from a face's landmark cloud. */
+  private fun bboxOf(landmarks: List<NormalizedLandmark>, imgW: Int, imgH: Int): FloatArray {
+    var minX = Float.MAX_VALUE
+    var minY = Float.MAX_VALUE
+    var maxX = -Float.MAX_VALUE
+    var maxY = -Float.MAX_VALUE
+    for (lm in landmarks) {
+      val x = lm.x() * imgW
+      val y = lm.y() * imgH
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    }
+    return floatArrayOf(minX, minY, maxX - minX, maxY - minY)
+  }
+
+  /**
+   * `alignment` carries leftEyeX/leftEyeY/rightEyeX/rightEyeY — offsets from
+   * the crop's top-left corner, in the ORIGINAL photo's pixel units, i.e.
+   * before any resampling — plus cropSize (the crop box's requested side
+   * length in those same units). The actual decoded bitmap can differ
+   * slightly from the requested size, so the scale factor is derived from
+   * the real decoded width/height, the same defensive approach face.js used
+   * before this change.
+   *
+   * A nose/mouth-corner 5-point extension was tried here and reverted: it
+   * shipped in the same build as a field report of a confident (0.80) match
+   * between two different people — worse than this eyes-only fit ever
+   * produced. See face.js's extractFaceEmbedding for the fuller account.
    */
   @ReactMethod
   fun extractEmbedding(cropPath: String, alignment: ReadableMap, promise: Promise) {
@@ -152,35 +308,14 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
 
       val leftEye = point("leftEyeX", "leftEyeY")
       val rightEye = point("rightEyeX", "rightEyeY")
-      val hasExtra =
-          alignment.hasKey("noseX") && alignment.hasKey("mouthLeftX") && alignment.hasKey("mouthRightX")
 
-      // ML Kit's leftEye/rightEye (and mouthLeft/mouthRight) are labeled from
-      // the SUBJECT's perspective, not the image's — a normal, unmirrored
-      // photo places the subject's own left eye on the image's right side.
-      // Detect that case from the eyes (mirrored <=> ML Kit's "left" landmark
-      // is actually on the image's left side) and apply the same swap to the
-      // mouth corners, since a photo is mirrored as a whole, not per-landmark.
-      val mirrored = leftEye[0] <= rightEye[0]
-      val (imgLeftEye, imgRightEye) = if (mirrored) Pair(leftEye, rightEye) else Pair(rightEye, leftEye)
+      // Order by image position (left-most -> template-left eye), matching
+      // faceMath.js's eyeAlignInverseMap: subject-relative left/right doesn't
+      // matter here, only which side of the image each point falls on.
+      val (imgLeftEye, imgRightEye) =
+          if (leftEye[0] <= rightEye[0]) Pair(leftEye, rightEye) else Pair(rightEye, leftEye)
 
-      val src = mutableListOf(imgLeftEye, imgRightEye)
-      val dst = mutableListOf(TGT_LEFT_EYE, TGT_RIGHT_EYE)
-      if (hasExtra) {
-        val nose = point("noseX", "noseY")
-        val mouthLeft = point("mouthLeftX", "mouthLeftY")
-        val mouthRight = point("mouthRightX", "mouthRightY")
-        val (imgMouthLeft, imgMouthRight) =
-            if (mirrored) Pair(mouthLeft, mouthRight) else Pair(mouthRight, mouthLeft)
-        src.add(nose)
-        src.add(imgMouthLeft)
-        src.add(imgMouthRight)
-        dst.add(TGT_NOSE)
-        dst.add(TGT_MOUTH_LEFT)
-        dst.add(TGT_MOUTH_RIGHT)
-      }
-
-      val fit = fitSimilarity(src, dst)
+      val fit = fitSimilarity(listOf(imgLeftEye, imgRightEye), listOf(TGT_LEFT_EYE, TGT_RIGHT_EYE))
       val a = fit[0]
       val b = fit[1]
       val tx = fit[2]

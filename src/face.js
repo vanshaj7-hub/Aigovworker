@@ -1,5 +1,4 @@
 import {Image, NativeModules} from 'react-native';
-import FaceDetection from '@react-native-ml-kit/face-detection';
 import ImageEditor from '@react-native-community/image-editor';
 import RNFS from 'react-native-fs';
 import {
@@ -12,18 +11,23 @@ import {
   eyeGeometryPlausible,
 } from './domain/faceMath';
 
-// Face alignment (least-squares similarity warp across up to 5 ArcFace
-// template landmarks — see faceMath.js's fitSimilarity), pixel normalization
-// and TFLite inference all run natively (see
-// android/app/src/main/java/com/attendanceapp/facenative/FaceEmbedModule.kt)
-// instead of the hand-rolled JS crop/decode/bilinear-sample pipeline this used
-// to be — Android's own Bitmap/Canvas/Matrix APIs are far more battle-tested
-// than a per-pixel JS sampler for this. Detection/landmarks (ML Kit) and the
-// initial square crop (ImageEditor.cropImage, which already handles
-// EXIF/orientation correctly) still happen here in JS; only the alignment
-// warp, normalization and model call moved native. Same bundled model and
-// normalization convention as before, so existing enrolled reference
-// embeddings stay valid — nothing needs re-enrolling.
+// Face detection/landmarks (MediaPipe Face Landmarker, native — see
+// FaceEmbedModule.kt's detectFace), alignment (least-squares similarity warp
+// — faceMath.js's fitSimilarity), pixel normalization and TFLite inference
+// all run natively instead of the hand-rolled JS crop/decode/bilinear-sample
+// pipeline this used to be. Detection moved from
+// @react-native-ml-kit/face-detection to MediaPipe because an offline
+// validation (real labeled same/different-person photos, this exact
+// embedding model+alignment math) showed a large genuine/impostor gap with
+// MediaPipe's landmarks vs. a much narrower one with ML Kit's, confirmed on
+// real on-device match-log data. ML Kit stays in use in CaptureScreen.js for
+// the live preview indicator and blink-liveness check, where landmark
+// precision doesn't matter. The initial square crop still happens here in JS
+// via ImageEditor.cropImage (handles EXIF/orientation correctly); only
+// detection, the alignment warp, normalization and the model call are
+// native. Same bundled embedding model and normalization convention as
+// before, so existing enrolled reference embeddings stay valid — nothing
+// needs re-enrolling.
 const {FaceEmbed} = NativeModules;
 
 // Cosine similarity required to count as the same person: only a match above
@@ -66,70 +70,50 @@ function getImageSize(uri) {
   });
 }
 
-/** Detect faces (with landmarks) and return the single prominent one. */
+/**
+ * Detect the prominent face and its eye positions via the native MediaPipe
+ * detector. Returns the same shape the old ML-Kit-based version did
+ * ({frame, landmarks: {leftEye: {position}, rightEye: {position}}}) so
+ * extractFaceEmbedding below needs no changes.
+ */
 async function pickProminentFace(photoUri) {
-  const faces = await FaceDetection.detect(photoUri, {
-    performanceMode: 'accurate',
-    landmarkMode: 'all',
-    minFaceSize: 0.1,
-  });
-  if (!faces || faces.length === 0) {
-    throw new Error('NO_FACE');
-  }
-  // Require detections that actually carry both eye landmark positions. A real
-  // face always has locatable eyes; a covered/dark or heavily blurred frame makes
-  // ML Kit occasionally report a "face" region with no landmarks. Those are false
-  // positives — and unalignable — so if none qualify we reject them (distinct
-  // from NO_FACE — ML Kit did find something, just not alignable) rather than
-  // running the model on noise (which used to yield a bogus ~50% "match" when
-  // the camera was covered). Eyes are also what the alignment needs.
-  const withEyes = faces.filter(
-    f =>
-      f.landmarks &&
-      f.landmarks.leftEye &&
-      f.landmarks.leftEye.position &&
-      f.landmarks.rightEye &&
-      f.landmarks.rightEye.position,
-  );
-  if (withEyes.length === 0) {
-    throw new Error('NO_EYE_LANDMARKS');
-  }
-  const pool = withEyes;
-  const byArea = [...pool].sort(
-    (a, b) => b.frame.width * b.frame.height - a.frame.width * a.frame.height,
-  );
-  if (byArea.length > 1) {
-    const first = byArea[0].frame.width * byArea[0].frame.height;
-    const second = byArea[1].frame.width * byArea[1].frame.height;
-    if (second > first * 0.5) {
-      throw new Error('MULTIPLE_FACES');
+  let detected;
+  try {
+    detected = await FaceEmbed.detectFace(photoUri);
+  } catch (e) {
+    if (e && e.code === 'NO_FACE') {
+      throw new Error('NO_FACE');
     }
+    // MediaPipe's face mesh always includes eye landmarks whenever it
+    // detects a face at all, so unlike the old ML-Kit path there is no
+    // separate "found a face but no eyes" case to distinguish — any other
+    // native failure (decode, model load, ...) is a MODEL_ERROR.
+    const nativeReason = (e && (e.code || e.message)) || 'UNKNOWN';
+    throw new Error(`MODEL_ERROR:${nativeReason}`);
   }
-  const face = byArea[0];
+  if (detected.multipleFaces) {
+    throw new Error('MULTIPLE_FACES');
+  }
+  const leftEye = {x: detected.leftEyeX, y: detected.leftEyeY};
+  const rightEye = {x: detected.rightEyeX, y: detected.rightEyeY};
   // Reject implausible eye geometry (too close/far apart for the face box, or
-  // an impossible tilt) before it is ever used for alignment. ML Kit's
-  // landmarks are noisier than the MediaPipe iris points the matching
-  // threshold was originally validated against offline, and a bad pair still
-  // "succeeds" here — it just warps the crop and narrows genuine/impostor
-  // separation on-device (this is the leading suspect for impostors scoring
-  // 60-65% instead of the ~27% seen offline). Logged as its own code (distinct
-  // from NO_FACE / NO_EYE_LANDMARKS) so the match-log CSV shows exactly which
-  // of the three actually fired instead of masking them all identically.
-  const {leftEye, rightEye} = face.landmarks;
-  if (!eyeGeometryPlausible(leftEye.position, rightEye.position, face.frame)) {
+  // an impossible tilt) before it is ever used for alignment — logged as its
+  // own code (distinct from NO_FACE) so the match-log CSV shows exactly which
+  // check actually fired instead of masking them all identically.
+  if (!eyeGeometryPlausible(leftEye, rightEye, detected.frame)) {
     throw new Error('BAD_EYE_GEOMETRY');
   }
-  return face;
+  return {frame: detected.frame, landmarks: {leftEye: {position: leftEye}, rightEye: {position: rightEye}}};
 }
 
 /**
- * Full pipeline: detect the prominent face, crop a square region around it
- * (ImageEditor.cropImage — handles EXIF/orientation), then hand that crop
- * plus the available ArcFace landmarks (eyes always; nose/mouth corners when
- * ML Kit reports them) to the native module, which fits them onto the
- * canonical template, runs the model, and returns the L2-normalized embedding
- * (averaged with its horizontal mirror) plus a blur/exposure quality score
- * computed on the same aligned pixels.
+ * Full pipeline: detect the prominent face (native, MediaPipe), crop a
+ * square region around it (ImageEditor.cropImage — handles EXIF/
+ * orientation), then hand that crop plus the eye positions to the native
+ * module, which aligns them onto the canonical ArcFace template, runs the
+ * model, and returns the L2-normalized embedding (averaged with its
+ * horizontal mirror) plus a blur/exposure quality score computed on the
+ * same aligned pixels.
  */
 export async function extractFaceEmbedding(photoUri) {
   const face = await pickProminentFace(photoUri);
@@ -160,12 +144,12 @@ export async function extractFaceEmbedding(photoUri) {
   }
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
-  // pickProminentFace already guarantees both eye landmarks are present (it
-  // throws NO_EYE_LANDMARKS otherwise), so there is no bbox-only fallback path
-  // to carry over here. Coordinates are passed relative to the crop's
-  // top-left corner, in the ORIGINAL photo's pixel units — the native module
-  // derives its own scale factor from the actual decoded bitmap width, the
-  // same defensive real-vs-requested-size handling this used to do in JS.
+  // pickProminentFace already guarantees both eye positions are present
+  // (MediaPipe's face mesh always includes them whenever a face is detected
+  // at all). Coordinates are passed relative to the crop's top-left corner,
+  // in the ORIGINAL photo's pixel units — the native module derives its own
+  // scale factor from the actual decoded bitmap width, the same defensive
+  // real-vs-requested-size handling this used to do in JS.
   //
   // A nose/mouth-corner 5-point extension was tried here and reverted: it
   // shipped in the same build as a field report of a confident (80%) match
