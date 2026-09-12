@@ -5,12 +5,56 @@
 // Model input size.
 export const OUT = 112;
 
-// Canonical eye positions for a 112x112 aligned face — the two eye points of the
-// widely used ArcFace 5-point template. Aligning every face so its eyes land on
-// these points is what MobileFaceNet expects; feeding an unaligned, stretched
-// bounding box (the old behaviour) is the main reason matches were weak.
+// Canonical 112x112 ArcFace 5-point template. Aligning every face so these
+// five landmarks land on these points is what MobileFaceNet expects; feeding
+// an unaligned, stretched bounding box (the old behaviour) is the main reason
+// matches were weak. Using all five (via fitSimilarity below) rather than
+// just the two eye points spreads landmark noise across five measurements
+// instead of the alignment being fully determined — and therefore fully
+// sensitive to noise in — only two.
 export const TGT_LEFT_EYE = {x: 38.2946, y: 51.6963};
 export const TGT_RIGHT_EYE = {x: 73.5318, y: 51.5014};
+export const TGT_NOSE = {x: 56.0252, y: 71.7366};
+export const TGT_MOUTH_LEFT = {x: 41.5493, y: 92.3655};
+export const TGT_MOUTH_RIGHT = {x: 70.7299, y: 92.2041};
+
+/**
+ * Least-squares similarity transform (uniform scale + rotation + translation,
+ * no shear) mapping `src` points onto `dst` points, solved in closed form via
+ * the normal equations of u = a*x - b*y + tx, v = b*x + a*y + ty (linear in
+ * a, b, tx, ty since a = s*cos(theta), b = s*sin(theta)). With exactly 2
+ * points this is the same unique transform eyeAlignInverseMap computes
+ * (fully determined, zero residual); with more points (e.g. all 5 template
+ * landmarks) it least-squares-averages over all of them, so noise in any one
+ * landmark is damped rather than fully propagated into the alignment.
+ */
+export function fitSimilarity(src, dst) {
+  const n = src.length;
+  let Sx = 0,
+    Sy = 0,
+    Su = 0,
+    Sv = 0,
+    Sxx_yy = 0,
+    Sxu_yv = 0,
+    Svx_uy = 0;
+  for (let i = 0; i < n; i++) {
+    const {x, y} = src[i];
+    const {x: u, y: v} = dst[i];
+    Sx += x;
+    Sy += y;
+    Su += u;
+    Sv += v;
+    Sxx_yy += x * x + y * y;
+    Sxu_yv += x * u + y * v;
+    Svx_uy += v * x - u * y;
+  }
+  const denom = n * Sxx_yy - Sx * Sx - Sy * Sy;
+  const a = denom !== 0 ? (n * Sxu_yv - Sx * Su - Sy * Sv) / denom : 1;
+  const b = denom !== 0 ? (n * Svx_uy + Sy * Su - Sx * Sv) / denom : 0;
+  const tx = (Su - a * Sx + b * Sy) / n;
+  const ty = (Sv - b * Sx - a * Sy) / n;
+  return {a, b, tx, ty};
+}
 
 export function l2normalize(vec) {
   let norm = 0;

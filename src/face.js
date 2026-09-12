@@ -12,17 +12,18 @@ import {
   eyeGeometryPlausible,
 } from './domain/faceMath';
 
-// Face alignment (2-point similarity warp against the ArcFace template),
-// pixel normalization and TFLite inference all run natively (see
+// Face alignment (least-squares similarity warp across up to 5 ArcFace
+// template landmarks — see faceMath.js's fitSimilarity), pixel normalization
+// and TFLite inference all run natively (see
 // android/app/src/main/java/com/attendanceapp/facenative/FaceEmbedModule.kt)
 // instead of the hand-rolled JS crop/decode/bilinear-sample pipeline this used
 // to be — Android's own Bitmap/Canvas/Matrix APIs are far more battle-tested
 // than a per-pixel JS sampler for this. Detection/landmarks (ML Kit) and the
 // initial square crop (ImageEditor.cropImage, which already handles
 // EXIF/orientation correctly) still happen here in JS; only the alignment
-// warp, normalization and model call moved native. Same bundled model, same
-// alignment template and normalization convention as before, so existing
-// enrolled reference embeddings stay valid — nothing needs re-enrolling.
+// warp, normalization and model call moved native. Same bundled model and
+// normalization convention as before, so existing enrolled reference
+// embeddings stay valid — nothing needs re-enrolling.
 const {FaceEmbed} = NativeModules;
 
 // Cosine similarity required to count as the same person: only a match above 70%
@@ -107,11 +108,12 @@ async function pickProminentFace(photoUri) {
 
 /**
  * Full pipeline: detect the prominent face, crop a square region around it
- * (ImageEditor.cropImage — handles EXIF/orientation), then hand that crop plus
- * the two eye positions to the native module, which aligns them onto the
- * canonical ArcFace template, runs the model, and returns the L2-normalized
- * embedding (averaged with its horizontal mirror) plus a blur/exposure
- * quality score computed on the same aligned pixels.
+ * (ImageEditor.cropImage — handles EXIF/orientation), then hand that crop
+ * plus the available ArcFace landmarks (eyes always; nose/mouth corners when
+ * ML Kit reports them) to the native module, which fits them onto the
+ * canonical template, runs the model, and returns the L2-normalized embedding
+ * (averaged with its horizontal mirror) plus a blur/exposure quality score
+ * computed on the same aligned pixels.
  */
 export async function extractFaceEmbedding(photoUri) {
   const face = await pickProminentFace(photoUri);
@@ -143,12 +145,22 @@ export async function extractFaceEmbedding(photoUri) {
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
   // pickProminentFace already guarantees both eye landmarks are present (it
-  // throws NO_EYE_LANDMARKS otherwise), so there is no bbox-only fallback path
-  // to carry over here. Coordinates are passed relative to the crop's
-  // top-left corner, in the ORIGINAL photo's pixel units — the native module
-  // derives its own scale factor from the actual decoded bitmap width, the
-  // same defensive real-vs-requested-size handling this used to do in JS.
-  const {leftEye, rightEye} = face.landmarks;
+  // throws NO_EYE_LANDMARKS otherwise). Nose/mouth-corner landmarks are
+  // passed through too when ML Kit reports them — the native module fits the
+  // alignment across all 5 available points instead of being fully (and
+  // therefore noise-sensitively) determined by just the 2 eyes; if any of the
+  // 3 are missing (e.g. a partially occluded face) it falls back to the
+  // eyes-only fit rather than failing the capture. Coordinates are passed
+  // relative to the crop's top-left corner, in the ORIGINAL photo's pixel
+  // units — the native module derives its own scale factor from the actual
+  // decoded bitmap width/height, the same defensive real-vs-requested-size
+  // handling this used to do in JS.
+  const {leftEye, rightEye, noseBase, mouthLeft, mouthRight} = face.landmarks;
+  const rel = p => ({x: p.position.x - cropX, y: p.position.y - cropY});
+  const extra =
+    noseBase && mouthLeft && mouthRight
+      ? {nose: rel(noseBase), mouthLeft: rel(mouthLeft), mouthRight: rel(mouthRight)}
+      : null;
 
   let result;
   try {
@@ -158,6 +170,16 @@ export async function extractFaceEmbedding(photoUri) {
       rightEyeX: rightEye.position.x - cropX,
       rightEyeY: rightEye.position.y - cropY,
       cropSize,
+      ...(extra
+        ? {
+            noseX: extra.nose.x,
+            noseY: extra.nose.y,
+            mouthLeftX: extra.mouthLeft.x,
+            mouthLeftY: extra.mouthLeft.y,
+            mouthRightX: extra.mouthRight.x,
+            mouthRightY: extra.mouthRight.y,
+          }
+        : null),
     });
   } catch (e) {
     // Keep the native module's actual failure reason (e.g. DECODE_FAILED,
