@@ -30,20 +30,24 @@ const {FaceEmbed} = NativeModules;
 // this threshold marks the worker Present; anything at or below is treated as
 // not matched (marked Absent, retryable).
 //
-// Raised from 0.7 to 0.9 as an emergency measure after a field report of two
-// different people scoring 0.80 — a false ACCEPT, which is a much worse
-// failure for an attendance/identity system than a false reject (a rejected
-// genuine worker just retries; a wrongly-accepted impostor is marked present
-// as someone else). 0.7 was itself already a stopgap chosen when on-device
-// impostor scores were seen creeping up to 0.6-0.65 against an offline
-// (MediaPipe-landmark) validation that had put genuine captures at ~0.88+ and
-// impostors below ~0.27 — a real (~0.6) separation gap that the on-device
-// pipeline has repeatedly narrowed for reasons not yet fully understood.
-// 0.9 is a precaution, not a calibrated number — it has NOT been validated
-// against real genuine/impostor score distributions from this device/model.
-// Retune from the match-log CSV export (storage.js) as soon as there's
-// enough real data — that data is what should set this, not another guess.
-export const MATCH_THRESHOLD = 0.9;
+// First real on-device match-log data (this build, eyes-only alignment,
+// same worker "Vasu 8"): a genuine capture (their own correct reference)
+// scored 0.795; a deliberate different-person capture scored 0.681 — the
+// right ORDER (genuine > impostor) but only an ~0.11 gap, much narrower than
+// this exact model+alignment showed in an offline Python validation against
+// high-precision MediaPipe landmarks (genuine 0.73-0.90, impostor -0.10 to
+// 0.0) — strong evidence ML Kit's on-device landmark precision, not the
+// model or the alignment math, is what's compressing this gap.
+//
+// 0.75 sits between those two real points (~0.07 above the impostor sample,
+// ~0.045 below the genuine sample) — biased slightly toward the impostor
+// side since a false ACCEPT (wrongly marking someone present as a different
+// worker) is a worse failure than a false reject (a genuine worker just
+// retries). This is still calibrated from exactly one genuine and one
+// impostor sample, not a real distribution — treat it as provisional and
+// retune from the match-log CSV export (storage.js) as more real attempts
+// (multiple different workers, multiple impostor attempts) come in.
+export const MATCH_THRESHOLD = 0.75;
 
 // Resolution of the intermediate square crop handed to the native module.
 // Larger than the model's 112x112 input so the alignment warp has detail to
