@@ -26,12 +26,24 @@ import {
 // embeddings stay valid — nothing needs re-enrolling.
 const {FaceEmbed} = NativeModules;
 
-// Cosine similarity required to count as the same person: only a match above 70%
-// marks the worker Present; anything at or below is treated as not matched (marked
-// Absent, retryable). Offline testing on the real model put genuine captures at
-// ~0.88+ and different people below ~0.27, so 0.70 keeps a wide margin over
-// impostors. Lower toward 0.5-0.6 if genuine workers get wrongly rejected.
-export const MATCH_THRESHOLD = 0.7;
+// Cosine similarity required to count as the same person: only a match above
+// this threshold marks the worker Present; anything at or below is treated as
+// not matched (marked Absent, retryable).
+//
+// Raised from 0.7 to 0.9 as an emergency measure after a field report of two
+// different people scoring 0.80 — a false ACCEPT, which is a much worse
+// failure for an attendance/identity system than a false reject (a rejected
+// genuine worker just retries; a wrongly-accepted impostor is marked present
+// as someone else). 0.7 was itself already a stopgap chosen when on-device
+// impostor scores were seen creeping up to 0.6-0.65 against an offline
+// (MediaPipe-landmark) validation that had put genuine captures at ~0.88+ and
+// impostors below ~0.27 — a real (~0.6) separation gap that the on-device
+// pipeline has repeatedly narrowed for reasons not yet fully understood.
+// 0.9 is a precaution, not a calibrated number — it has NOT been validated
+// against real genuine/impostor score distributions from this device/model.
+// Retune from the match-log CSV export (storage.js) as soon as there's
+// enough real data — that data is what should set this, not another guess.
+export const MATCH_THRESHOLD = 0.9;
 
 // Resolution of the intermediate square crop handed to the native module.
 // Larger than the model's 112x112 input so the alignment warp has detail to
@@ -145,22 +157,23 @@ export async function extractFaceEmbedding(photoUri) {
   const cropUri = typeof crop === 'string' ? crop : crop.uri;
 
   // pickProminentFace already guarantees both eye landmarks are present (it
-  // throws NO_EYE_LANDMARKS otherwise). Nose/mouth-corner landmarks are
-  // passed through too when ML Kit reports them — the native module fits the
-  // alignment across all 5 available points instead of being fully (and
-  // therefore noise-sensitively) determined by just the 2 eyes; if any of the
-  // 3 are missing (e.g. a partially occluded face) it falls back to the
-  // eyes-only fit rather than failing the capture. Coordinates are passed
-  // relative to the crop's top-left corner, in the ORIGINAL photo's pixel
-  // units — the native module derives its own scale factor from the actual
-  // decoded bitmap width/height, the same defensive real-vs-requested-size
-  // handling this used to do in JS.
-  const {leftEye, rightEye, noseBase, mouthLeft, mouthRight} = face.landmarks;
-  const rel = p => ({x: p.position.x - cropX, y: p.position.y - cropY});
-  const extra =
-    noseBase && mouthLeft && mouthRight
-      ? {nose: rel(noseBase), mouthLeft: rel(mouthLeft), mouthRight: rel(mouthRight)}
-      : null;
+  // throws NO_EYE_LANDMARKS otherwise), so there is no bbox-only fallback path
+  // to carry over here. Coordinates are passed relative to the crop's
+  // top-left corner, in the ORIGINAL photo's pixel units — the native module
+  // derives its own scale factor from the actual decoded bitmap width, the
+  // same defensive real-vs-requested-size handling this used to do in JS.
+  //
+  // A nose/mouth-corner 5-point extension was tried here and reverted: it
+  // shipped in the same build as a field report of a confident (80%) match
+  // between two different people — worse than this eyes-only fit ever
+  // produced. Unable to verify or rule out that extension as the cause
+  // on-device, the safer call is to fall back to this smaller, more-tested
+  // surface (still native Canvas/Matrix alignment, still the fitSimilarity
+  // fit — just with exactly the 2 eye points fitSimilarity's own unit tests
+  // already prove is an exact, zero-residual reproduction of the original
+  // eyeAlignInverseMap transform) rather than keep unvalidated new logic in
+  // place. Revisit only with real match-log data in hand.
+  const {leftEye, rightEye} = face.landmarks;
 
   let result;
   try {
@@ -170,16 +183,6 @@ export async function extractFaceEmbedding(photoUri) {
       rightEyeX: rightEye.position.x - cropX,
       rightEyeY: rightEye.position.y - cropY,
       cropSize,
-      ...(extra
-        ? {
-            noseX: extra.nose.x,
-            noseY: extra.nose.y,
-            mouthLeftX: extra.mouthLeft.x,
-            mouthLeftY: extra.mouthLeft.y,
-            mouthRightX: extra.mouthRight.x,
-            mouthRightY: extra.mouthRight.y,
-          }
-        : null),
     });
   } catch (e) {
     // Keep the native module's actual failure reason (e.g. DECODE_FAILED,
