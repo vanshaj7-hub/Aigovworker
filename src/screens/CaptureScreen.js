@@ -30,6 +30,12 @@ const OVAL = {cx: SW / 2, cy: SH * 0.40, rx: SW * 0.34, ry: SW * 0.44};
 // open (rather than permanently blocking attendance) is the safer default.
 const LIVENESS_TIMEOUT_MS = 8000;
 
+// How often the dedicated liveness poll below samples eye-open state while a
+// confirmation is still pending. Short enough to have a real chance of
+// landing during a blink's ~100-400ms closed-eye moment, unlike the 2s
+// cadence the face-detected indicator uses.
+const LIVENESS_FAST_POLL_MS = 350;
+
 const uriOf = p => (p.startsWith('file://') || p.startsWith('content://') ? p : 'file://' + p);
 
 export default function CaptureScreen({
@@ -143,6 +149,66 @@ export default function CaptureScreen({
     timer = setInterval(tick, 2000);
     return () => clearInterval(timer);
   }, [busy, requireLiveness]);
+
+  // Faster polling ONLY while a liveness confirmation is still pending. A real
+  // blink lasts ~100-400ms — far shorter than the 2s cadence the poll above
+  // uses for the "face detected" chip — so that poll alone almost never
+  // samples the eyes-closed instant, meaning the blink state machine could
+  // only ever complete by timing luck; in practice the unconditional
+  // fail-open below was doing all the work. This second, independent poll
+  // exists purely to give a genuine blink an actual chance of being caught
+  // quickly. It shares the same camOpRef/busy guards as the poll above and
+  // capture() itself, so the two can never run concurrently — whichever
+  // timer's turn lands first just wins that cycle, the other no-ops safely.
+  // It only ever runs during the brief pending window at the start of an
+  // attempt: the effect tears itself down the instant livenessConfirmed
+  // flips true, whether that happens here, via the slower poll, or via the
+  // fail-open timeout — which is untouched and still fires unconditionally,
+  // so even if this poll never manages to sample a usable frame, behavior
+  // falls back to exactly what it is today.
+  useEffect(() => {
+    if (!requireLiveness || livenessConfirmed) {
+      return undefined;
+    }
+    let running = false;
+    const tick = async () => {
+      if (running || busy || camOpRef.current || !cam.current || !alive.current) {
+        return;
+      }
+      running = true;
+      camOpRef.current = true;
+      let snapPath = null;
+      try {
+        const snap = await cam.current.takeSnapshot({quality: 35});
+        snapPath = snap && snap.path;
+        if (snapPath) {
+          const faces = await FaceDetection.detect(uriOf(snapPath), {
+            performanceMode: 'fast',
+            minFaceSize: 0.15,
+            classificationMode: 'all',
+          });
+          if (!livenessRef.current.confirmed) {
+            const sample = faces && faces.length ? avgEyeOpenProbability(faces[0]) : null;
+            livenessRef.current = nextLivenessState(livenessRef.current, sample);
+            if (livenessRef.current.confirmed && alive.current) {
+              setLivenessConfirmed(true);
+            }
+          }
+        }
+      } catch (e) {
+        // Snapshotting unavailable this cycle — the slower poll and the
+        // fail-open timeout below still cover this attempt.
+      } finally {
+        if (snapPath) {
+          RNFS.unlink(snapPath).catch(() => {});
+        }
+        camOpRef.current = false;
+        running = false;
+      }
+    };
+    const timer = setInterval(tick, LIVENESS_FAST_POLL_MS);
+    return () => clearInterval(timer);
+  }, [busy, requireLiveness, livenessConfirmed]);
 
   // Camera only. takePhoto gives a full-resolution frame; if the device or
   // emulator cannot service it we fall back to a preview snapshot (the same
