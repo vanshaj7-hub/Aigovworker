@@ -122,6 +122,9 @@ function Shell() {
   // embedding was freshly computed this session (see saveDebugAlignedImage in
   // FaceEmbedModule.kt) — purely for DebugFacesScreen, never used for matching.
   const refDebugCache = useRef({});
+  // Worker photo URLs known to be fresher than what the backend will return for
+  // a little while after an edit — see onUpdate below for why this exists.
+  const pendingPhotoOverrides = useRef({});
   const alive = useRef(true);
 
   useEffect(() => () => {
@@ -211,13 +214,35 @@ function Shell() {
       setShiftId(ws.shiftId);
       setBackendCounts(ws.counts);
       setActiveShift(ws.shift || null);
+      // A worker photo edit patches data.workers optimistically with the fresh
+      // URL the /edit-worker response just gave us, then calls this function to
+      // refresh everything else (counts, other workers, onboarding flags) — but
+      // /supervisor-workers can briefly still return the pre-edit photo (normal
+      // read-after-write lag), which would silently overwrite the correct photo
+      // with the stale one a moment later. That is exactly the "update doesn't
+      // reflect until restart" bug: it wasn't a display cache, it was this fetch
+      // racing the edit and usually winning. Reapply any pending overrides on
+      // top of what the backend returned, and drop one only once the backend
+      // itself agrees (so a later, genuinely newer edit still comes through).
+      const workersWithOverrides = workers.map(w => {
+        const key = w.workerId != null ? w.workerId : w.id;
+        const override = pendingPhotoOverrides.current[key];
+        if (!override) {
+          return w;
+        }
+        if (w.referenceUrl === override) {
+          delete pendingPhotoOverrides.current[key];
+          return w;
+        }
+        return {...w, photoUri: override, referenceUrl: override};
+      });
       setData(d => {
         // Adopt the backend's profile photo so the avatar survives a restart,
         // without clobbering any other locally-held profile fields.
         const profile = ws.profilePhotoUrl
           ? {...(d.profile || {name: session.fullName || ''}), photoUri: ws.profilePhotoUrl}
           : d.profile;
-        const next = {...d, ward: ws.ward, workers, profile};
+        const next = {...d, ward: ws.ward, workers: workersWithOverrides, profile};
         if (reconciledRecords) {
           next.records = reconciledRecords;
         }
@@ -947,6 +972,10 @@ function Shell() {
               }
               const freshUrl = (r && r.photoUrl) || fields.referenceUrl;
               if (freshUrl) {
+                // Also remembered here so the loadBackendWorkspace() call below
+                // (which normally runs right after this) can't undo this patch
+                // with a not-yet-caught-up backend read — see that function.
+                pendingPhotoOverrides.current[fields.workerId] = freshUrl;
                 setData(d => ({
                   ...d,
                   workers: (d.workers || []).map(w =>

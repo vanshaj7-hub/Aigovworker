@@ -321,15 +321,40 @@ export function InfoBlock({icon, children, style}) {
 
 /* ------------------------------------------------------------------ pieces */
 
+const AVATAR_MAX_RETRIES = 2;
+
 export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
-  const [failed, setFailed] = useState(false);
-  // Fall back to initials if the photo cannot load (stale local path, network),
-  // so a missing image never leaves a blank circle.
-  if (uri && !failed) {
+  const [failCount, setFailCount] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
+
+  // A worker list loads several photos at once; a single slow/flaky request
+  // among them used to fall back to initials permanently and never retry,
+  // which read as "the image just isn't loading" even though the URL itself
+  // was fine. Reset whenever the uri changes too (e.g. after editing a
+  // worker's photo) so a previous failure can't block the new url forever.
+  useEffect(() => {
+    setFailCount(0);
+    setRetryKey(0);
+  }, [uri]);
+
+  const handleError = () => {
+    setFailCount(n => {
+      const next = n + 1;
+      if (next <= AVATAR_MAX_RETRIES) {
+        setTimeout(() => setRetryKey(k => k + 1), 400 * next);
+      }
+      return next;
+    });
+  };
+
+  // Fall back to initials only after retries are exhausted, so a missing
+  // image never leaves a blank circle.
+  if (uri && failCount <= AVATAR_MAX_RETRIES) {
     return (
       <Image
+        key={retryKey}
         source={{uri}}
-        onError={() => setFailed(true)}
+        onError={handleError}
         style={{width: size, height: size, borderRadius: size / 2}}
       />
     );
