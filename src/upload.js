@@ -1,3 +1,6 @@
+import {Image} from 'react-native';
+import ImageEditor from '@react-native-community/image-editor';
+import RNFS from 'react-native-fs';
 import {FIREBASE_BUCKET, STORAGE_FOLDER, isUploadConfigured} from './config';
 
 /**
@@ -63,6 +66,55 @@ function objectPath({supervisorId, wardId, workerId}, ext) {
   return `${STORAGE_FOLDER}/${name}`;
 }
 
+// Every photo here (worker reference, attendance capture, profile photo) is
+// only ever displayed as a small thumbnail — the largest is a 84x84 preview
+// in VerifiedScreen — but a raw phone camera capture is several megapixels,
+// routinely 1-4MB. Uploading it as-is meant a worker list trying to load
+// several of these as 44x44 avatars at once was pulling multi-megabyte files
+// over the network just to shrink them client-side; on real mobile data
+// several of those requests queued long enough to time out, which read as
+// "the image just won't load" even though every URL, checked individually,
+// worked fine. Confirmed directly against the Storage bucket: worker photos
+// uploaded in the last day range from 1.2MB to 3.6MB.
+const MAX_UPLOAD_DIMENSION = 640;
+const UPLOAD_JPEG_QUALITY = 0.82;
+
+function getImageSize(uri) {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({width, height}), reject);
+  });
+}
+
+/**
+ * Downscales a local photo to a small JPEG before upload. This only affects
+ * the uploaded/displayed copy — face matching never touches it: extractFace
+ * Embedding (face.js) works from its own independent crop of the original
+ * captured photo, computed before this ever runs, so recognition accuracy is
+ * completely unaffected. Falls back to the original file untouched on any
+ * failure (a bad size read, a crop error) so a display-size optimization can
+ * never block an upload that would otherwise have worked.
+ */
+async function downscaleForUpload(localUri) {
+  try {
+    const {width, height} = await getImageSize(localUri);
+    if (!width || !height || Math.max(width, height) <= MAX_UPLOAD_DIMENSION) {
+      return localUri;
+    }
+    const scale = MAX_UPLOAD_DIMENSION / Math.max(width, height);
+    const resized = await ImageEditor.cropImage(localUri, {
+      offset: {x: 0, y: 0},
+      size: {width, height},
+      displaySize: {width: Math.round(width * scale), height: Math.round(height * scale)},
+      resizeMode: 'contain',
+      format: 'jpeg',
+      quality: UPLOAD_JPEG_QUALITY,
+    });
+    return typeof resized === 'string' ? resized : resized.uri;
+  } catch (e) {
+    return localUri;
+  }
+}
+
 /** Turns the returned metadata into the long-lived public download URL. */
 function downloadUrl(bucket, path, meta) {
   const token =
@@ -86,13 +138,14 @@ export async function uploadImage(localUri, ids) {
     throw new UploadError('NO_FILE');
   }
 
-  const ext = extensionOf(localUri);
+  const uploadUri = await downscaleForUpload(localUri);
+  const ext = uploadUri === localUri ? extensionOf(localUri) : 'jpg';
   const path = objectPath(ids || {}, ext);
 
   // React Native can read a local file straight into a Blob.
   let blob;
   try {
-    const fileRes = await fetch(localUri);
+    const fileRes = await fetch(uploadUri);
     blob = await fileRes.blob();
   } catch (err) {
     throw new UploadError('READ_FAILED', err);
@@ -111,6 +164,9 @@ export async function uploadImage(localUri, ids) {
   } finally {
     if (blob && typeof blob.close === 'function') {
       blob.close();
+    }
+    if (uploadUri !== localUri) {
+      RNFS.unlink(uploadUri.replace('file://', '')).catch(() => {});
     }
   }
 
