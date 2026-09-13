@@ -97,7 +97,6 @@ function Shell() {
   const [breach, setBreach] = useState(null); // {reason: 'outside'|'moved'}
   const [photoRequest, setPhotoRequest] = useState(null); // {title, resolve}
   const [workspaceLoaded, setWorkspaceLoaded] = useState(!USE_BACKEND);
-  const [profileSkipped, setProfileSkipped] = useState(false);
   // Per-session opt-out: lets the supervisor mark attendance from outside the
   // ward after choosing "skip for now" on the geo-fence block. (Location is
   // never checked at login — only here, during attendance.)
@@ -740,16 +739,16 @@ function Shell() {
     );
   }
 
-  // Profile is re-checked on every sign-in. It can be skipped for now, but the
-  // prompt returns on the next app open because profileSkipped is not persisted.
-  if (!profileReady && !profileSkipped) {
+  // Profile is re-checked on every sign-in. A supervisor cannot proceed
+  // without completing it — no skip option — since the profile photo doubles
+  // as their own identity reference for later verification.
+  if (!profileReady) {
     return (
       <ProfileSetupScreen
         session={session}
         ward={data.ward}
         profile={data.profile}
         openCamera={() => requestPhoto(tr('addYourPhoto'))}
-        onSkip={() => setProfileSkipped(true)}
         onDone={profile => {
           setData(d => ({...d, profile}));
           // Best-effort mirror: upload the photo to Firebase and POST the profile.
@@ -1088,7 +1087,6 @@ function Shell() {
               setWorkspaceLoaded(!USE_BACKEND);
               setBackendCounts(null);
               setActiveShift(null);
-              setProfileSkipped(false);
               setAttnBypass(false);
               setFailed({});
               return;

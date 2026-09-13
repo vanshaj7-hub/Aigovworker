@@ -169,7 +169,11 @@ export function profileGaps(profile) {
   if (!profile.name || profile.name.trim().length < 3) {
     gaps.push('name');
   }
-  if (!/^\d{10}$/.test(String(profile.mobile || '').replace(/\D/g, ''))) {
+  // Not every region uses 10-digit mobile numbers (e.g. Singapore uses 8) —
+  // requiring exactly 10 silently blocked a supervisor from ever completing
+  // their profile, with no indication of why. Accept any reasonable-length
+  // real-world mobile number instead of assuming one country's format.
+  if (!/^\d{7,15}$/.test(String(profile.mobile || '').replace(/\D/g, ''))) {
     gaps.push('mobile');
   }
   if (!profile.designation || !profile.designation.trim()) {

@@ -77,10 +77,10 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
     <Screen bg={c.surface}>
       <AppBar
         title={tr('completeProfile')}
-        right={<Text style={s.step}>{tr('stepOf', {a: 1, b: 2})}</Text>}
+        right={<Text style={s.step}>{tr('stepOf', {a: 1, b: 1})}</Text>}
       />
       <View style={s.progressTrack}>
-        <View style={s.progressFill} />
+        <View style={[s.progressFill, {width: '100%'}]} />
       </View>
 
       <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
@@ -132,12 +132,7 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
       </ScrollView>
 
       <BottomBar>
-        <FilledButton
-          label={tr('saveContinue')}
-          onPress={save}
-          busy={busy}
-          disabled={gaps.length > 0}
-        />
+        <FilledButton label={tr('saveContinue')} onPress={save} busy={busy} />
         {onSkip ? (
           <>
             <TextButton label={tr('skipForNow')} onPress={onSkip} style={{marginTop: 4}} />

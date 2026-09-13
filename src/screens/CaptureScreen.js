@@ -332,24 +332,29 @@ export default function CaptureScreen({
           <Icon name="no-photography" size={16} color="#FDD663" style={{marginRight: 8}} />
           <Text style={s.reminderText}>{tr('removeAccessories')}</Text>
         </View>
-        <Chip
-          ok={faceState === 'yes'}
-          neutral={faceState === 'unknown'}
-          icon={faceState === 'yes' ? 'face' : 'face-retouching-off'}
-          label={faceState === 'yes' ? tr('faceDetected') : faceState === 'no' ? tr('noFaceYet') : tr('checking')}
-        />
-        <Chip
-          ok={inFence}
-          icon={inFence ? 'my-location' : 'wrong-location'}
-          label={inFence ? tr('insideGeofence') : tr('outsideGeofence')}
-        />
-        {requireLiveness ? (
+        {/* Chips share one row (wrapping only if needed) instead of stacking
+            individually — three separate stacked rows pushed this whole block
+            tall enough to overlap the face oval above it on real devices. */}
+        <View style={s.chipRow}>
           <Chip
-            ok={livenessConfirmed}
-            icon={livenessConfirmed ? 'visibility' : 'remove-red-eye'}
-            label={livenessConfirmed ? tr('livenessConfirmed') : tr('livenessPending')}
+            ok={faceState === 'yes'}
+            neutral={faceState === 'unknown'}
+            icon={faceState === 'yes' ? 'face' : 'face-retouching-off'}
+            label={faceState === 'yes' ? tr('faceDetected') : faceState === 'no' ? tr('noFaceYet') : tr('checking')}
           />
-        ) : null}
+          <Chip
+            ok={inFence}
+            icon={inFence ? 'my-location' : 'wrong-location'}
+            label={inFence ? tr('insideGeofence') : tr('outsideGeofence')}
+          />
+          {requireLiveness ? (
+            <Chip
+              ok={livenessConfirmed}
+              icon={livenessConfirmed ? 'visibility' : 'remove-red-eye'}
+              label={livenessConfirmed ? tr('livenessConfirmed') : tr('livenessPending')}
+            />
+          ) : null}
+        </View>
         <Text style={s.hint}>
           {requireLiveness && !livenessConfirmed ? tr('livenessHint') : tr('holdSteady')}
         </Text>
@@ -410,16 +415,22 @@ const s = StyleSheet.create({
     bottom: 146,
     alignItems: 'center',
   },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: c.camChip,
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  chipLabel: {color: '#fff', fontSize: 14, fontWeight: '500'},
+  chipLabel: {color: '#fff', fontSize: 13, fontWeight: '500'},
 
   reminder: {
     flexDirection: 'row',
