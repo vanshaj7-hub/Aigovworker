@@ -25,12 +25,17 @@ export default function WorkerListScreen({workers, onEdit, onAdd, onBack, loadin
         ListEmptyComponent={<EmptyState icon="groups" text={tr('noWorkersYet')} />}
         ItemSeparatorComponent={Divider}
         contentContainerStyle={{paddingBottom: 12}}
-        renderItem={({item: w}) => (
+        renderItem={({item: w, index}) => (
           <Pressable
             onPress={() => onEdit(w)}
             android_ripple={{color: '#00000010'}}
             style={s.row}>
-            <Avatar name={localizeWorkerName(w.name, tr, lang)} uri={w.photoUri} size={44} />
+            <Avatar
+              name={localizeWorkerName(w.name, tr, lang)}
+              uri={w.photoUri}
+              size={44}
+              loadDelayMs={Math.min(index, 8) * 120}
+            />
             <View style={{flex: 1, marginLeft: 14}}>
               <Text style={s.name}>{localizeWorkerName(w.name, tr, lang)}</Text>
               <Text style={t.small}>

@@ -166,7 +166,7 @@ export default function SelectWorkerScreen({
         keyExtractor={row => row.worker.id}
         ListEmptyComponent={<EmptyState icon="groups" text={tr('noWorkersYet')} />}
         ItemSeparatorComponent={Divider}
-        renderItem={({item}) => {
+        renderItem={({item, index}) => {
           const {worker, status} = item;
           // A backend worker with no reference photo yet (onboarding_completed=0)
           // must be onboarded before attendance — flag it and route the tap to the
@@ -198,7 +198,12 @@ export default function SelectWorkerScreen({
               onPress={() => selectable && onPick(worker)}
               android_ripple={{color: '#00000010'}}
               style={s.row}>
-              <Avatar name={localizeWorkerName(worker.name, tr, lang)} uri={worker.photoUri} size={44} />
+              <Avatar
+                name={localizeWorkerName(worker.name, tr, lang)}
+                uri={worker.photoUri}
+                size={44}
+                loadDelayMs={Math.min(index, 8) * 120}
+              />
               <View style={{flex: 1, marginLeft: 14}}>
                 <Text style={s.rowName}>{localizeWorkerName(worker.name, tr, lang)}</Text>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>

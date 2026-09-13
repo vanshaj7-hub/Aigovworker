@@ -321,11 +321,12 @@ export function InfoBlock({icon, children, style}) {
 
 /* ------------------------------------------------------------------ pieces */
 
-const AVATAR_MAX_RETRIES = 2;
+const AVATAR_MAX_RETRIES = 3;
 
-export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
+export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted, loadDelayMs = 0}) {
   const [failCount, setFailCount] = useState(0);
   const [retryKey, setRetryKey] = useState(0);
+  const [ready, setReady] = useState(loadDelayMs <= 0);
 
   // A worker list loads several photos at once; a single slow/flaky request
   // among them used to fall back to initials permanently and never retry,
@@ -335,13 +336,28 @@ export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
   useEffect(() => {
     setFailCount(0);
     setRetryKey(0);
-  }, [uri]);
+    if (loadDelayMs <= 0) {
+      setReady(true);
+      return undefined;
+    }
+    // Firing every row's image request in the same tick (a long worker list's
+    // first render batch) contends for the same host's limited concurrent
+    // connections — a handful load fine, the rest queue, and by the time
+    // their turn comes some have sat long enough to time out, which reads as
+    // "loads for a few seconds then falls back to initials" even though every
+    // URL is individually valid. Staggering the actual request start (an
+    // optional, caller-supplied delay — see WorkerListScreen/SelectWorkerScreen)
+    // spreads the burst out so far fewer requests are ever contending at once.
+    setReady(false);
+    const id = setTimeout(() => setReady(true), loadDelayMs);
+    return () => clearTimeout(id);
+  }, [uri, loadDelayMs]);
 
   const handleError = () => {
     setFailCount(n => {
       const next = n + 1;
       if (next <= AVATAR_MAX_RETRIES) {
-        setTimeout(() => setRetryKey(k => k + 1), 400 * next);
+        setTimeout(() => setRetryKey(k => k + 1), 700 * next);
       }
       return next;
     });
@@ -349,7 +365,7 @@ export function Avatar({name, uri, size = 44, bg = c.fill, fg = c.textMuted}) {
 
   // Fall back to initials only after retries are exhausted, so a missing
   // image never leaves a blank circle.
-  if (uri && failCount <= AVATAR_MAX_RETRIES) {
+  if (uri && ready && failCount <= AVATAR_MAX_RETRIES) {
     return (
       <Image
         key={retryKey}
