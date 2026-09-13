@@ -330,6 +330,31 @@ function Shell() {
     }
   }, []);
 
+  // Live continuous scan: score one preview frame against the active worker's
+  // reference face. Returns cosine similarity (0..1), or null when there's no
+  // detectable face in the frame (or the worker has no reference yet). The
+  // CaptureScreen polls this so the supervisor can adjust angle and watch the
+  // score climb; it auto-marks once a frame crosses MATCH_THRESHOLD.
+  const scoreFrame = useCallback(
+    async (frameUri, roi) => {
+      const worker = active;
+      if (!worker) {
+        return null;
+      }
+      const reference = await buildReferenceEmbedding(worker);
+      if (!reference) {
+        return null;
+      }
+      try {
+        const {embedding} = await extractFaceEmbedding(frameUri, {roi});
+        return cosineSimilarity(embedding, reference);
+      } catch (e) {
+        return null; // no clean face in this frame
+      }
+    },
+    [active, buildReferenceEmbedding],
+  );
+
   /* ----------------------------------------------------- attendance capture */
 
   const writeRecord = useCallback(
@@ -413,7 +438,7 @@ function Shell() {
   );
 
   const onCaptured = useCallback(
-    async (uri, roi) => {
+    async (uri, roi, liveScore) => {
       const worker = active;
       if (!worker) {
         return;
@@ -457,48 +482,24 @@ function Shell() {
         return;
       }
 
-      // 3. Identity. Match against the face the supervisor framed in the oval
-      // (roi); the embedding is still computed from the detected, eye-aligned
-      // face. We keep the FULL image for the record — only matching uses the roi.
-      let embedding;
-      try {
-        const out = await extractFaceEmbedding(uri, {roi});
-        embedding = out.embedding;
-      } catch (err) {
-        // No / unclear face — mark Absent for now; the supervisor can retry.
-        setFailed(m => ({...m, [worker.id]: true}));
-        Alert.alert(
-          err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
-          `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
-        );
-        return;
-      }
-      // A real worker MUST have a reference face to verify against. If none is
-      // on file, require capturing one now — attendance cannot continue for this
-      // worker until a reference is added.
-      let reference = await buildReferenceEmbedding(worker);
-      if (!reference) {
-        const add = await new Promise(resolve =>
-          Alert.alert(tr('noReferenceTitle'), tr('noReferenceBody', {name: worker.name}), [
-            {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
-            {text: tr('addReferencePhoto'), onPress: () => resolve(true)},
-          ]),
-        );
-        if (!add) {
-          setFailed(m => ({...m, [worker.id]: true})); // Absent until a reference is added
-          return;
-        }
-        const refUri = await requestPhoto(tr('referenceFor', {name: worker.name}));
-        if (!refUri) {
-          setFailed(m => ({...m, [worker.id]: true}));
-          return;
-        }
+      // 3. Identity. Two ways in:
+      //  - Live scan: the on-screen frame already crossed the threshold, so its
+      //    score is passed in as `liveScore` and trusted here — no need to re-run
+      //    the model on the saved frame (which would just repeat the same work and
+      //    could differ by a hair on a slightly later frame).
+      //  - Manual shutter: detect + match now, against the worker's reference.
+      let score;
+      let verified;
+      if (liveScore != null) {
+        score = Math.round(liveScore * 100) / 100;
+        verified = true;
+      } else {
+        let embedding;
         try {
-          const out = await extractFaceEmbedding(refUri);
-          reference = out.embedding;
-          const key = worker.workerId != null ? worker.workerId : worker.id;
-          refCache.current[key] = reference; // used for this session's matching
+          const out = await extractFaceEmbedding(uri, {roi});
+          embedding = out.embedding;
         } catch (err) {
+          // No / unclear face — mark Absent for now; the supervisor can retry.
           setFailed(m => ({...m, [worker.id]: true}));
           Alert.alert(
             err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
@@ -506,26 +507,60 @@ function Shell() {
           );
           return;
         }
-      }
+        // A real worker MUST have a reference face to verify against. If none is
+        // on file, require capturing one now — attendance cannot continue for this
+        // worker until a reference is added.
+        let reference = await buildReferenceEmbedding(worker);
+        if (!reference) {
+          const add = await new Promise(resolve =>
+            Alert.alert(tr('noReferenceTitle'), tr('noReferenceBody', {name: worker.name}), [
+              {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
+              {text: tr('addReferencePhoto'), onPress: () => resolve(true)},
+            ]),
+          );
+          if (!add) {
+            setFailed(m => ({...m, [worker.id]: true})); // Absent until a reference is added
+            return;
+          }
+          const refUri = await requestPhoto(tr('referenceFor', {name: worker.name}));
+          if (!refUri) {
+            setFailed(m => ({...m, [worker.id]: true}));
+            return;
+          }
+          try {
+            const out = await extractFaceEmbedding(refUri);
+            reference = out.embedding;
+            const key = worker.workerId != null ? worker.workerId : worker.id;
+            refCache.current[key] = reference; // used for this session's matching
+          } catch (err) {
+            setFailed(m => ({...m, [worker.id]: true}));
+            Alert.alert(
+              err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
+              `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
+            );
+            return;
+          }
+        }
 
-      // Verify the live capture against the reference. Always strict now.
-      const sim = cosineSimilarity(embedding, reference);
-      if (sim < MATCH_THRESHOLD) {
-        // Face did not match — mark Absent and let the supervisor retry. Show the
-        // actual match % (and the required %) so a near-miss is visible and the
-        // threshold can be judged from real captures.
-        setFailed(m => ({...m, [worker.id]: true}));
-        Alert.alert(
-          tr('notMatched'),
-          `${tr('notMatchedBody', {name: worker.name})} ${tr('matchScoreLine', {
-            got: Math.round(sim * 100),
-            need: Math.round(MATCH_THRESHOLD * 100),
-          })} ${tr('markedAbsentRetry')}`,
-        );
-        return;
+        // Verify the live capture against the reference. Always strict now.
+        const sim = cosineSimilarity(embedding, reference);
+        if (sim < MATCH_THRESHOLD) {
+          // Face did not match — mark Absent and let the supervisor retry. Show the
+          // actual match % (and the required %) so a near-miss is visible and the
+          // threshold can be judged from real captures.
+          setFailed(m => ({...m, [worker.id]: true}));
+          Alert.alert(
+            tr('notMatched'),
+            `${tr('notMatchedBody', {name: worker.name})} ${tr('matchScoreLine', {
+              got: Math.round(sim * 100),
+              need: Math.round(MATCH_THRESHOLD * 100),
+            })} ${tr('markedAbsentRetry')}`,
+          );
+          return;
+        }
+        score = Math.round(sim * 100) / 100;
+        verified = true;
       }
-      const score = Math.round(sim * 100) / 100;
-      const verified = true;
 
       // 4. Location again — strict: the device may have moved while the face was
       // processed, so re-confirm it is still inside the ward.
@@ -754,6 +789,9 @@ function Shell() {
           shiftId={shiftId}
           fence={fence}
           onCaptured={onCaptured}
+          liveMatchEnabled={!!(active && active.referenceUrl)}
+          scoreFrame={scoreFrame}
+          matchThreshold={MATCH_THRESHOLD}
           onCancel={() => setScreen('attendance')}
         />
       );

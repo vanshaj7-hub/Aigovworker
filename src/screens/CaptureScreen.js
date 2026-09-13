@@ -68,7 +68,21 @@ async function computeOvalRoi(uri) {
   }
 }
 
-export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured, onCancel}) {
+export default function CaptureScreen({
+  worker,
+  ward,
+  shiftId,
+  fence,
+  onCaptured,
+  onCancel,
+  // Live continuous matching: when enabled, `scoreFrame(uri, roi)` scores a
+  // preview frame against the worker's reference and we auto-mark the instant a
+  // frame reaches `matchThreshold` — no shutter tap needed (the shutter stays as
+  // a manual fallback). Disabled for the reference-photo capture flow.
+  liveMatchEnabled = false,
+  scoreFrame,
+  matchThreshold = 0.7,
+}) {
   const {t: tr} = useLang();
   // `worker` can briefly be null while the parent swaps screens after a capture.
   const workerName = (worker && worker.name) || '';
@@ -77,9 +91,20 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
   const [torch, setTorch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [faceState, setFaceState] = useState('unknown'); // unknown | yes | no
+  const [liveScore, setLiveScore] = useState(null); // last live match score (0..1) or null
   const [camPermission, setCamPermission] = useState('checking'); // checking | granted | denied
   const device = useCameraDevice(position);
   const alive = useRef(true);
+
+  // Keep the latest callbacks/flags in refs so the continuous-match loop below
+  // doesn't restart (and reset its hit streak) on every parent re-render — e.g.
+  // each GPS update changes onCaptured's identity.
+  const onCapturedRef = useRef(onCaptured);
+  onCapturedRef.current = onCaptured;
+  const scoreFrameRef = useRef(scoreFrame);
+  scoreFrameRef.current = scoreFrame;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   useEffect(() => () => {
     alive.current = false;
@@ -98,9 +123,13 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
     })();
   }, []);
 
-  // Live face indicator. Uses cheap preview snapshots; if the platform cannot
-  // provide them the chip simply stays neutral rather than lying.
+  // Live face indicator (simple presence check). Only runs when live matching is
+  // OFF (e.g. the reference-photo capture flow); when live matching is ON, the
+  // continuous match loop below drives the face state instead.
   useEffect(() => {
+    if (liveMatchEnabled) {
+      return undefined;
+    }
     let timer = null;
     let running = false;
     const tick = async () => {
@@ -132,7 +161,77 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
     };
     timer = setInterval(tick, 2000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [busy, liveMatchEnabled]);
+
+  // Live continuous matching. While enabled, score preview frames against the
+  // worker's reference and auto-mark the instant one crosses the threshold, so the
+  // supervisor can change angle and watch it lock on. Requires two consecutive
+  // frames over the line to avoid a one-frame fluke. The matched frame itself
+  // becomes the saved record (the full, uncropped preview image).
+  useEffect(() => {
+    if (!liveMatchEnabled) {
+      return undefined;
+    }
+    let timer = null;
+    let running = false;
+    let hits = 0;
+    let done = false;
+    const tick = async () => {
+      if (running || done || busyRef.current || !cam.current || !alive.current) {
+        return;
+      }
+      const score = scoreFrameRef.current;
+      if (!score) {
+        return;
+      }
+      running = true;
+      let snapPath = null;
+      let keep = false;
+      try {
+        const snap = await cam.current.takeSnapshot({quality: 80});
+        snapPath = snap && snap.path;
+        if (snapPath) {
+          const uri = uriOf(snapPath);
+          const roi = await computeOvalRoi(uri);
+          const sim = await score(uri, roi);
+          if (!alive.current) {
+            return;
+          }
+          setLiveScore(sim);
+          setFaceState(sim == null ? 'no' : 'yes');
+          if (sim != null && sim >= matchThreshold) {
+            hits += 1;
+            if (hits >= 2) {
+              // Locked on: stop scanning and mark using this exact frame.
+              done = true;
+              keep = true;
+              if (timer) {
+                clearInterval(timer);
+              }
+              setBusy(true);
+              await onCapturedRef.current(uri, roi, sim);
+            }
+          } else {
+            hits = 0;
+          }
+        }
+      } catch (e) {
+        // ignore this frame; keep scanning
+      } finally {
+        if (snapPath && !keep) {
+          RNFS.unlink(snapPath).catch(() => {});
+        }
+        running = false;
+      }
+    };
+    timer = setInterval(tick, 900);
+    return () => {
+      done = true;
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [liveMatchEnabled, matchThreshold]);
 
   // Camera only. takePhoto gives a full-resolution frame; if the device or
   // emulator cannot service it we fall back to a preview snapshot (the same
@@ -249,18 +348,40 @@ export default function CaptureScreen({worker, ward, shiftId, fence, onCaptured,
           <Icon name="no-photography" size={16} color="#FDD663" style={{marginRight: 8}} />
           <Text style={s.reminderText}>{tr('removeAccessories')}</Text>
         </View>
-        <Chip
-          ok={faceState === 'yes'}
-          neutral={faceState === 'unknown'}
-          icon={faceState === 'yes' ? 'face' : 'face-retouching-off'}
-          label={faceState === 'yes' ? tr('faceDetected') : faceState === 'no' ? tr('noFaceYet') : tr('checking')}
-        />
+        {liveMatchEnabled ? (
+          <Chip
+            ok={liveScore != null && liveScore >= matchThreshold}
+            neutral={liveScore == null}
+            icon={
+              liveScore != null && liveScore >= matchThreshold
+                ? 'verified'
+                : liveScore != null
+                ? 'face'
+                : 'face-retouching-off'
+            }
+            label={
+              liveScore == null
+                ? tr('scanningFace')
+                : tr('liveMatchPct', {
+                    pct: Math.round(liveScore * 100),
+                    need: Math.round(matchThreshold * 100),
+                  })
+            }
+          />
+        ) : (
+          <Chip
+            ok={faceState === 'yes'}
+            neutral={faceState === 'unknown'}
+            icon={faceState === 'yes' ? 'face' : 'face-retouching-off'}
+            label={faceState === 'yes' ? tr('faceDetected') : faceState === 'no' ? tr('noFaceYet') : tr('checking')}
+          />
+        )}
         <Chip
           ok={inFence}
           icon={inFence ? 'my-location' : 'wrong-location'}
           label={inFence ? tr('insideGeofence') : tr('outsideGeofence')}
         />
-        <Text style={s.hint}>{tr('holdSteady')}</Text>
+        <Text style={s.hint}>{liveMatchEnabled ? tr('holdToMatch') : tr('holdSteady')}</Text>
       </View>
 
       <View style={s.bottomBar}>

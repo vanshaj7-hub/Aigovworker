@@ -16,15 +16,13 @@ import {
   sampleRGB,
 } from './domain/faceMath';
 
-// Cosine similarity required to count as the same person: a match above 65%
-// marks the worker Present; anything at or below is treated as not matched (marked
-// Absent, retryable). Real on-device captures (front-facing worker, variable
-// light, jpeg) sit lower than the clean offline pairs did, and 0.70 was rejecting
-// genuine same-person captures (seen ~0.66 with only a shirt change), so 0.65
-// gives realistic captures room while still separating different people (typical
-// impostors land well under ~0.4). Lower toward 0.55-0.6 only if genuine workers
-// are still rejected; raise if a wrong person is ever accepted.
-export const MATCH_THRESHOLD = 0.65;
+// Cosine similarity required to count as the same person. Used by both the manual
+// capture and the live continuous scan: attendance is marked the moment a frame
+// scores at or above this. Set to 0.70 per the live-scan flow (a worker holds
+// their face until it crosses this bar). Typical different people land well under
+// ~0.4, so 0.70 keeps a wide margin; lower toward 0.6 if genuine workers are
+// rejected, raise if a wrong person is ever accepted.
+export const MATCH_THRESHOLD = 0.7;
 
 // Resolution of the intermediate square crop we decode and sample from. Larger
 // than the model input so the alignment resampling has detail to work with.

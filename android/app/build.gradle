@@ -94,8 +94,8 @@ android {
         applicationId "com.attendanceapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 28
-        versionName "4.5"
+        versionCode 29
+        versionName "4.6"
     }
     signingConfigs {
         debug {
