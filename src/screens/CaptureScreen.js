@@ -64,6 +64,14 @@ export default function CaptureScreen({
   const livenessRef = useRef(initialLivenessState());
   const [livenessConfirmed, setLivenessConfirmed] = useState(!requireLiveness);
   const [livenessResetKey, setLivenessResetKey] = useState(0);
+  // Whether at least one real (non-null) eye-open sample has arrived since the
+  // last reset — distinguishes "this device/ML Kit version never reports eye
+  // data at all" (the only case the timeout below should fail open for) from
+  // "samples are arriving but no genuine blink has happened yet", e.g. a
+  // photo or a screen held up to the camera showing a constant, unblinking
+  // eye-open reading. Conflating the two used to let the timeout unlock the
+  // shutter for a static image just by waiting it out.
+  const sawAnySampleRef = useRef(false);
 
   useEffect(() => () => {
     alive.current = false;
@@ -73,12 +81,17 @@ export default function CaptureScreen({
   // version, or the preview snapshot loop never gets a usable frame), unlock
   // the shutter anyway after a few seconds rather than blocking attendance
   // entirely. Restarts each time capture() resets the check for a new attempt.
+  //
+  // Does NOT fail open when samples ARE arriving but no full blink cycle has
+  // completed — that's the state a held-up photo or a phone/screen showing a
+  // face produces (a constant eye-open reading that never genuinely closes),
+  // and unlocking anyway there would defeat the whole point of this check.
   useEffect(() => {
     if (!requireLiveness) {
       return undefined;
     }
     const id = setTimeout(() => {
-      if (alive.current) {
+      if (alive.current && !sawAnySampleRef.current) {
         setLivenessConfirmed(true);
       }
     }, LIVENESS_TIMEOUT_MS);
@@ -124,6 +137,9 @@ export default function CaptureScreen({
           }
           if (requireLiveness && !livenessRef.current.confirmed) {
             const sample = faces && faces.length ? avgEyeOpenProbability(faces[0]) : null;
+            if (sample != null) {
+              sawAnySampleRef.current = true;
+            }
             livenessRef.current = nextLivenessState(livenessRef.current, sample);
             if (livenessRef.current.confirmed && alive.current) {
               setLivenessConfirmed(true);
@@ -182,6 +198,7 @@ export default function CaptureScreen({
         // screen visit — the same CaptureScreen instance stays mounted across a
         // rejected-match retry.
         livenessRef.current = initialLivenessState();
+        sawAnySampleRef.current = false;
         setLivenessConfirmed(false);
         setLivenessResetKey(k => k + 1);
       }
