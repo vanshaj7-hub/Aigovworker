@@ -1,5 +1,6 @@
 import React, {useMemo, useState} from 'react';
-import {Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Image, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {alert} from '../alert';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {
@@ -46,15 +47,15 @@ export default function ProfileSetupScreen({session, ward, profile, onDone, open
 
   const save = async () => {
     if (gaps.includes('name')) {
-      Alert.alert(tr('completeProfile'), tr('nameRequired'));
+      alert(tr('completeProfile'), tr('nameRequired'));
       return;
     }
     if (gaps.includes('mobile')) {
-      Alert.alert(tr('completeProfile'), tr('mobileInvalid'));
+      alert(tr('completeProfile'), tr('mobileInvalid'));
       return;
     }
     if (gaps.includes('photo')) {
-      Alert.alert(tr('completeProfile'), tr('photoRequired'));
+      alert(tr('completeProfile'), tr('photoRequired'));
       return;
     }
     setBusy(true);

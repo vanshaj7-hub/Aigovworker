@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Alert, AppState, BackHandler, Modal, StatusBar, Text, View} from 'react-native';
+import {ActivityIndicator, AppState, BackHandler, Modal, StatusBar, Text, View} from 'react-native';
+import {AlertHost, alert} from './alert';
 import NetInfo from '@react-native-community/netinfo';
 import RNFS from 'react-native-fs';
 import {c} from './theme';
@@ -312,14 +313,14 @@ function Shell() {
 
   // Popups for the two hardware/OS prerequisites, reused across the app.
   const promptEnableLocation = useCallback(() => {
-    Alert.alert(tr('locationOffTitle'), tr('locationOffBody'), [
+    alert(tr('locationOffTitle'), tr('locationOffBody'), [
       {text: tr('cancel'), style: 'cancel'},
       {text: tr('openSettings'), onPress: openLocationSettings},
     ]);
   }, [tr]);
 
   const promptCameraBlocked = useCallback(() => {
-    Alert.alert(tr('cameraDenied'), tr('cameraBlockedBody'), [
+    alert(tr('cameraDenied'), tr('cameraBlockedBody'), [
       {text: tr('cancel'), style: 'cancel'},
       {text: tr('openSettings'), onPress: openAppSettings},
     ]);
@@ -466,7 +467,7 @@ function Shell() {
       // switched off — prompt the supervisor to turn it on rather than showing a
       // misleading "outside the ward".
       if (!fix && !attnBypass) {
-        Alert.alert(tr('locationOffTitle'), tr('locationOffBody'), [
+        alert(tr('locationOffTitle'), tr('locationOffBody'), [
           {text: tr('cancel'), style: 'cancel'},
           {text: tr('openSettings'), onPress: openLocationSettings},
         ]);
@@ -483,7 +484,7 @@ function Shell() {
       // 2. Demo workers carry no reference face, so there is nothing to match.
       if (isDemoWorker(worker)) {
         const proceed = await new Promise(resolve =>
-          Alert.alert(tr('demoNoFace'), tr('demoNoFaceBody'), [
+          alert(tr('demoNoFace'), tr('demoNoFaceBody'), [
             {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
             {text: tr('recordAnyway'), onPress: () => resolve(true)},
           ]),
@@ -515,7 +516,7 @@ function Shell() {
           verified: false,
           demo: false,
         }).catch(() => {});
-        Alert.alert(
+        alert(
           err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
           `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
         );
@@ -527,7 +528,7 @@ function Shell() {
       let reference = await buildReferenceEmbedding(worker);
       if (!reference) {
         const add = await new Promise(resolve =>
-          Alert.alert(tr('noReferenceTitle'), tr('noReferenceBody', {name: worker.name}), [
+          alert(tr('noReferenceTitle'), tr('noReferenceBody', {name: worker.name}), [
             {text: tr('cancel'), style: 'cancel', onPress: () => resolve(false)},
             {text: tr('addReferencePhoto'), onPress: () => resolve(true)},
           ]),
@@ -554,7 +555,7 @@ function Shell() {
           refCache.current[key] = reference; // used for this session's matching
         } catch (err) {
           setFailed(m => ({...m, [worker.id]: true}));
-          Alert.alert(
+          alert(
             err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
             `${faceErrorMessage(err, tr)} ${tr('markedAbsentRetry')}`,
           );
@@ -593,7 +594,7 @@ function Shell() {
         // actual match % (and the required %) so a near-miss is visible and the
         // threshold can be judged from real captures.
         setFailed(m => ({...m, [worker.id]: true}));
-        Alert.alert(
+        alert(
           tr('notMatched'),
           `${tr('notMatchedBody', {name: worker.name})} ${tr('matchScoreLine', {
             got: Math.round(sim * 100),
@@ -645,7 +646,7 @@ function Shell() {
           {shots: REFERENCE_SHOTS},
         );
       } catch (err) {
-        Alert.alert(
+        alert(
           err && err.message === 'MULTIPLE_FACES' ? tr('manyFacesTitle') : tr('noFaceTitle'),
           faceErrorMessage(err, tr),
         );
@@ -668,10 +669,10 @@ function Shell() {
         // the roster so onboarding_completed flips to 1.
         const key = worker.workerId != null ? worker.workerId : worker.id;
         refCache.current[key] = embedding;
-        Alert.alert(tr('onboardingDone'), tr('onboardingDoneBody', {name: worker.name}));
+        alert(tr('onboardingDone'), tr('onboardingDoneBody', {name: worker.name}));
         loadBackendWorkspace();
       } else {
-        Alert.alert(tr('onboardingFailed'), (r && r.message) || '');
+        alert(tr('onboardingFailed'), (r && r.message) || '');
       }
     },
     [session, data.ward, tr, requestPhoto, loadBackendWorkspace],
@@ -941,9 +942,9 @@ function Shell() {
               photoUri: worker.photoUri,
             });
             if (!r || r.ok || r.skipped) {
-              Alert.alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
+              alert(tr('addWorker'), tr('workerSaved', {name: worker.name}));
             } else {
-              Alert.alert(tr('addWorker'), tr('workerSyncFailed', {msg: r.message || ''}));
+              alert(tr('addWorker'), tr('workerSyncFailed', {msg: r.message || ''}));
             }
             loadBackendWorkspace(); // pull the updated roster
             setScreen('workers');
@@ -960,7 +961,7 @@ function Shell() {
               referenceUrl: fields.referenceUrl,
             });
             if (!r || r.ok || r.skipped) {
-              Alert.alert(tr('editWorker'), tr('workerUpdated', {name: fields.fullName}));
+              alert(tr('editWorker'), tr('workerUpdated', {name: fields.fullName}));
               // Refresh this session's match cache immediately with the freshly
               // captured embedding, and patch the roster's photo URL locally
               // rather than only waiting on loadBackendWorkspace()'s re-fetch —
@@ -985,7 +986,7 @@ function Shell() {
                 }));
               }
             } else {
-              Alert.alert(tr('editWorker'), tr('workerUpdateFailed', {msg: r.message || ''}));
+              alert(tr('editWorker'), tr('workerUpdateFailed', {msg: r.message || ''}));
             }
             loadBackendWorkspace();
             setScreen('workers');
@@ -1024,7 +1025,7 @@ function Shell() {
                   }
                 });
             }
-            Alert.alert(tr('addLeave'), tr('leaveSaved', {name: worker.name}));
+            alert(tr('addLeave'), tr('leaveSaved', {name: worker.name}));
             goHome();
           }}
         />
@@ -1076,7 +1077,7 @@ function Shell() {
             if (session.mustResetPassword) {
               setShowPasswordChange(true);
             } else {
-              Alert.alert(tr('changePasswordTitle'), tr('pwAlreadyReset'));
+              alert(tr('changePasswordTitle'), tr('pwAlreadyReset'));
             }
           }}
           navigate={async target => {
@@ -1117,6 +1118,7 @@ function Shell() {
   return (
     <>
       {base}
+      <AlertHost />
       {photoRequest ? (
         <Modal
           visible

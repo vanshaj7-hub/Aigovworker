@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
-import {Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Image, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {alert} from '../alert';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {AppBar, BottomBar, Divider, Field, FilledButton, Icon, Screen, TextButton} from '../ui';
@@ -73,7 +74,7 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
       setEmbedding(result.embedding);
       setPhoto(result.photoUri);
     } catch (err) {
-      Alert.alert(tr('referencePhotograph'), faceErrorMessage(err, tr));
+      alert(tr('referencePhotograph'), faceErrorMessage(err, tr));
     } finally {
       setBusy(false);
     }
@@ -84,7 +85,7 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
       // Edit mode only saves the reference photo (that is all /edit-worker
       // accepts). A photo is required — an existing one, or a freshly captured.
       if (!photo) {
-        Alert.alert(tr('editWorker'), tr('needReferencePhoto'));
+        alert(tr('editWorker'), tr('needReferencePhoto'));
         return;
       }
       setBusy(true);
@@ -106,17 +107,17 @@ export default function AddWorkerScreen({worker, onSaved, onUpdate, onBack, open
     }
 
     if (!name.trim()) {
-      Alert.alert(tr('addWorker'), tr('nameRequired'));
+      alert(tr('addWorker'), tr('nameRequired'));
       return;
     }
     // Add mode: a reference photo and a valid date of birth are required.
     if (!embedding) {
-      Alert.alert(tr('addWorker'), tr('needNameAndPhoto'));
+      alert(tr('addWorker'), tr('needNameAndPhoto'));
       return;
     }
     const iso = dobToIso(dob);
     if (!iso) {
-      Alert.alert(tr('addWorker'), tr('dobInvalid'));
+      alert(tr('addWorker'), tr('dobInvalid'));
       return;
     }
     setBusy(true);

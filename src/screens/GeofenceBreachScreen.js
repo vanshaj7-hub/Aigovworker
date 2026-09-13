@@ -1,6 +1,7 @@
 import React from 'react';
-import {Alert, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {ScrollView, StyleSheet, Text, View} from 'react-native';
 import Svg, {Circle, Line, Path, Rect} from 'react-native-svg';
+import {alert} from '../alert';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
 import {Banner, BottomBar, FilledButton, Icon, OutlinedButton, Screen, TextButton} from '../ui';
@@ -55,7 +56,7 @@ export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRe
       distance: fence.overshoot,
       position: fence.position || null,
     });
-    Alert.alert(tr('boundaryReported'), tr('boundaryReportedBody', {ward: ward.shortName}));
+    alert(tr('boundaryReported'), tr('boundaryReportedBody', {ward: ward.shortName}));
   };
 
   return (
@@ -111,7 +112,7 @@ export default function GeofenceBreachScreen({ward, fence, onRetry, onBack, onRe
               onPress={async () => {
                 const ok = await onRecentre();
                 if (ok) {
-                  Alert.alert(tr('assignedWard'), tr('recentreDone'));
+                  alert(tr('assignedWard'), tr('recentreDone'));
                 }
               }}
               style={{marginTop: 10}}

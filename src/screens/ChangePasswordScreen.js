@@ -1,5 +1,6 @@
 import React, {useMemo, useState} from 'react';
-import {Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {alert} from '../alert';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {
@@ -33,19 +34,19 @@ export default function ChangePasswordScreen({email, forced, onDone, onSkip, onB
 
   const submit = async () => {
     if (!current) {
-      Alert.alert(tr('changePasswordTitle'), tr('currentPasswordHint'));
+      alert(tr('changePasswordTitle'), tr('currentPasswordHint'));
       return;
     }
     if (!check.valid) {
-      Alert.alert(tr('changePasswordTitle'), tr('pwWeak'));
+      alert(tr('changePasswordTitle'), tr('pwWeak'));
       return;
     }
     if (pw !== confirm) {
-      Alert.alert(tr('changePasswordTitle'), tr('pwMismatch'));
+      alert(tr('changePasswordTitle'), tr('pwMismatch'));
       return;
     }
     if (current === pw) {
-      Alert.alert(tr('changePasswordTitle'), tr('pwSameAsCurrent'));
+      alert(tr('changePasswordTitle'), tr('pwSameAsCurrent'));
       return;
     }
     setBusy(true);
@@ -62,10 +63,10 @@ export default function ChangePasswordScreen({email, forced, onDone, onSkip, onB
             : res.reason === 'network'
             ? res.message || tr('connectionProblem')
             : tr('noAccountFound');
-        Alert.alert(tr('changePasswordTitle'), msg);
+        alert(tr('changePasswordTitle'), msg);
         return;
       }
-      Alert.alert(tr('changePasswordTitle'), tr('passwordChanged'));
+      alert(tr('changePasswordTitle'), tr('passwordChanged'));
       onDone();
     } finally {
       setBusy(false);

@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   Pressable,
   StatusBar,
@@ -13,6 +12,7 @@ import {Camera, useCameraDevice} from 'react-native-vision-camera';
 import Svg, {Defs, Ellipse, Mask, Rect} from 'react-native-svg';
 import RNFS from 'react-native-fs';
 import FaceDetection from '@react-native-ml-kit/face-detection';
+import {alert} from '../alert';
 import {c} from '../theme';
 import {useLang} from '../i18n';
 import {Icon} from '../ui';
@@ -234,7 +234,7 @@ export default function CaptureScreen({
         }
       }
       if (!uri) {
-        Alert.alert(tr('captureFailed'), tr('captureFailedBody'));
+        alert(tr('captureFailed'), tr('captureFailedBody'));
         return;
       }
       await onCaptured(uri);

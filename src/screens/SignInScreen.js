@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
-import {Alert, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {alert} from '../alert';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
@@ -14,11 +15,11 @@ export default function SignInScreen({onSignedIn}) {
 
   const submit = async () => {
     if (!email.trim()) {
-      Alert.alert(tr('signInFailed'), tr('emailRequired'));
+      alert(tr('signInFailed'), tr('emailRequired'));
       return;
     }
     if (!isEmail(email)) {
-      Alert.alert(tr('signInFailed'), tr('emailInvalid'));
+      alert(tr('signInFailed'), tr('emailInvalid'));
       return;
     }
     setBusy(true);
@@ -27,9 +28,9 @@ export default function SignInScreen({onSignedIn}) {
       if (res.ok) {
         onSignedIn(res.session);
       } else if (res.reason === 'network') {
-        Alert.alert(tr('signInFailed'), res.message || tr('uploadNetwork'));
+        alert(tr('signInFailed'), res.message || tr('uploadNetwork'));
       } else {
-        Alert.alert(
+        alert(
           tr('signInFailed'),
           res.reason === 'noAccount' ? tr('noAccountFound') : tr('signInFailedBody'),
         );

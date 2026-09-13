@@ -1,7 +1,8 @@
 import React, {useEffect, useState} from 'react';
-import {Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Modal, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, r, t} from '../theme';
 import {useLang} from '../i18n';
+import {alert} from '../alert';
 import {
   AppBar,
   Avatar,
@@ -81,7 +82,7 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect, def
     // Block leave for a shift already under way today.
     if (leaveStartsToday && anyStartedToday) {
       if (allStartedToday || bothShifts || shiftStartedToday(shift)) {
-        Alert.alert(
+        alert(
           tr('addLeave'),
           allStartedToday ? tr('leaveTodayClosed') : tr('leaveShiftStarted'),
         );
@@ -89,7 +90,7 @@ export default function AddLeaveScreen({workers, onSaved, onBack, preselect, def
       }
     }
     if (!worker) {
-      Alert.alert(tr('addLeave'), tr('selectWorker'));
+      alert(tr('addLeave'), tr('selectWorker'));
       return;
     }
     setBusy(true);
