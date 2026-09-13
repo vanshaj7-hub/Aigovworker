@@ -18,6 +18,8 @@ import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.sqrt
@@ -349,6 +351,12 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
       result.putArray("embedding", arr)
       result.putDouble("brightness", quality.first.toDouble())
       result.putDouble("sharpness", quality.second.toDouble())
+      // Debug-only: the exact 112x112 pixels the model saw, after alignment.
+      // Purely additive (new field, nothing else changes) — lets the app show
+      // what actually went into the model, since a bad crop/alignment (not the
+      // model or the threshold) would explain unexpectedly high impostor
+      // scores and is otherwise invisible without this.
+      saveDebugAlignedImage(aligned)?.let { result.putString("alignedUri", it) }
       promise.resolve(result)
     } catch (e: Exception) {
       promise.reject("MODEL_ERROR", e.message, e)
@@ -414,6 +422,24 @@ class FaceEmbedModule(private val reactContext: ReactApplicationContext) :
           floatArrayOf((r - 127.5f) / 128.0f, (g - 127.5f) / 128.0f, (b - 127.5f) / 128.0f)
         }
       }
+    }
+  }
+
+  /**
+   * Writes the aligned 112x112 bitmap to a cache file for on-screen debug
+   * display (see DebugFacesScreen.js). Never throws into the caller — a
+   * failure here (disk full, etc.) should not break real face matching,
+   * which doesn't use this file at all.
+   */
+  private fun saveDebugAlignedImage(bitmap: Bitmap): String? {
+    return try {
+      val dir = File(reactContext.cacheDir, "facedebug")
+      if (!dir.exists()) dir.mkdirs()
+      val file = File(dir, "aligned_${System.currentTimeMillis()}.jpg")
+      FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out) }
+      "file://" + file.absolutePath
+    } catch (e: Exception) {
+      null
     }
   }
 

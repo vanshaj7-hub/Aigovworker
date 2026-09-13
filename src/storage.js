@@ -16,6 +16,7 @@ const K = {
   ISSUES: '@boundaryIssues',
   LOCATION_CHECKED: '@locationChecked',
   MATCH_LOG: '@matchLog',
+  LAST_MATCH_DEBUG: '@lastMatchDebug',
 };
 
 // Credentials are issued by the IT team; the app never creates accounts.
@@ -348,6 +349,20 @@ export async function matchLogCsv() {
 
 export async function clearMatchLog() {
   return write(K.MATCH_LOG, []);
+}
+
+/* ------------------------------------------------------- last match debug */
+//
+// The single most recent match attempt's aligned face crops (the exact 112x112
+// pixels the model scored, after detection+alignment — not the raw photos),
+// so a reported bad score can be visually checked against what the model
+// actually saw instead of guessed at. Overwritten every attempt; not part of
+// the match log/CSV since these are file paths, not exportable text.
+
+export const getLastMatchDebug = () => read(K.LAST_MATCH_DEBUG, null);
+
+export async function setLastMatchDebug(entry) {
+  await write(K.LAST_MATCH_DEBUG, {at: new Date().toISOString(), ...entry});
 }
 
 /* -------------------------------------------------------------- demo data */

@@ -19,7 +19,7 @@ import {
 import {clockTime, shiftLabel, timeOfDay} from '../domain/shifts';
 import {flushQueue, getMatchLog, matchLogCsv} from '../storage';
 
-export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, onSynced}) {
+export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, onSynced, onViewDebugFaces}) {
   const {t: tr} = useLang();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
@@ -117,6 +117,13 @@ export default function OfflineSyncScreen({records, lastSync, isOnline, onBack, 
         {note ? <Banner tone="info" icon="info-outline" body={note} style={{marginTop: 14}} /> : null}
 
         <TextButton label={tr('exportMatchLog')} onPress={exportLog} style={{marginTop: 18}} />
+        {onViewDebugFaces ? (
+          <TextButton
+            label="View last match faces (debug)"
+            onPress={onViewDebugFaces}
+            style={{marginTop: 10}}
+          />
+        ) : null}
       </ScrollView>
 
       <BottomBar>

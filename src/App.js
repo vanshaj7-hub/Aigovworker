@@ -40,7 +40,7 @@ import {
   extractFaceEmbedding,
   faceErrorMessage,
 } from './face';
-import {logMatchAttempt} from './storage';
+import {logMatchAttempt, setLastMatchDebug} from './storage';
 
 import SignInScreen from './screens/SignInScreen';
 import ChangePasswordScreen from './screens/ChangePasswordScreen';
@@ -55,6 +55,7 @@ import WorkerListScreen from './screens/WorkerListScreen';
 import AddLeaveScreen from './screens/AddLeaveScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import OfflineSyncScreen from './screens/OfflineSyncScreen';
+import DebugFacesScreen from './screens/DebugFacesScreen';
 
 const PHOTO_DIR = `${RNFS.DocumentDirectoryPath}/attendance`;
 
@@ -117,6 +118,10 @@ function Shell() {
   // Reference face embeddings, built on demand from each worker's photo URL and
   // cached so a worker's reference is downloaded and encoded at most once.
   const refCache = useRef({});
+  // The aligned-face debug image produced the last time each worker's reference
+  // embedding was freshly computed this session (see saveDebugAlignedImage in
+  // FaceEmbedModule.kt) — purely for DebugFacesScreen, never used for matching.
+  const refDebugCache = useRef({});
   const alive = useRef(true);
 
   useEffect(() => () => {
@@ -330,8 +335,9 @@ function Shell() {
       if (!dl || dl.statusCode !== 200) {
         return null;
       }
-      const {embedding} = await extractFaceEmbedding(`file://${dest}`);
+      const {embedding, alignedUri} = await extractFaceEmbedding(`file://${dest}`);
       refCache.current[key] = embedding;
+      refDebugCache.current[key] = alignedUri;
       return embedding;
     } catch (e) {
       return null; // no reference, or no detectable face in it
@@ -468,9 +474,11 @@ function Shell() {
       // 3. Identity. The face is detected inside the FULL captured image (we keep
       // the whole image — only the embedding is computed from the found face).
       let embedding;
+      let liveAlignedUri = null;
       try {
         const out = await extractFaceEmbedding(uri);
         embedding = out.embedding;
+        liveAlignedUri = out.alignedUri;
       } catch (err) {
         // No / unclear face — mark Absent for now; the supervisor can retry.
         setFailed(m => ({...m, [worker.id]: true}));
@@ -546,6 +554,16 @@ function Shell() {
         verified: sim >= MATCH_THRESHOLD,
         demo: false,
       }).catch(() => {});
+      {
+        const refKey = worker.workerId != null ? worker.workerId : worker.id;
+        setLastMatchDebug({
+          workerId: worker.id,
+          workerName: worker.name,
+          score: Math.round(sim * 1000) / 1000,
+          liveUri: liveAlignedUri,
+          referenceUri: refDebugCache.current[refKey] || null,
+        }).catch(() => {});
+      }
       if (sim < MATCH_THRESHOLD) {
         // Face did not match — mark Absent and let the supervisor retry. Show the
         // actual match % (and the required %) so a near-miss is visible and the
@@ -1002,8 +1020,12 @@ function Shell() {
           isOnline={isOnline}
           onBack={goHome}
           onSynced={records => setData(d => ({...d, records, lastSync: new Date().toISOString()}))}
+          onViewDebugFaces={() => setScreen('debugFaces')}
         />
       );
+
+    case 'debugFaces':
+      return <DebugFacesScreen onBack={() => setScreen('sync')} />;
 
     default:
       return (

@@ -198,7 +198,7 @@ export async function extractFaceEmbedding(photoUri) {
     throw new Error('LOW_QUALITY_BRIGHT');
   }
 
-  return {embedding: result.embedding, quality};
+  return {embedding: result.embedding, quality, alignedUri: result.alignedUri || null};
 }
 
 /**
