@@ -81,7 +81,7 @@ export async function signIn(email, password) {
     email: acct.email,
     supervisorId: acct.supervisorId,
     signedInAt: new Date().toISOString(),
-    // Drives the skippable change-password prompt straight after sign-in.
+    // Drives the mandatory change-password prompt straight after sign-in.
     mustResetPassword: !!acct.mustResetPassword,
     passwordPromptDone: false,
   });
@@ -111,15 +111,6 @@ export async function changePassword(email, oldPassword, newPassword) {
     await write(K.SESSION, {...session, mustResetPassword: false, passwordPromptDone: true});
   }
   return {ok: true};
-}
-
-/** Called when the supervisor chooses to keep the temporary password for now. */
-export async function dismissPasswordPrompt() {
-  const session = await getSession();
-  if (!session) {
-    return null;
-  }
-  return write(K.SESSION, {...session, passwordPromptDone: true});
 }
 
 /** Store a session object as-is (used by the backend auth path). */

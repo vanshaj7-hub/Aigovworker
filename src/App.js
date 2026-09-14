@@ -9,7 +9,6 @@ import {
   addAttendance,
   flushQueue,
   getSession,
-  dismissPasswordPrompt,
   isProfileComplete,
   loadAll,
   reconcileAttendance,
@@ -706,9 +705,9 @@ function Shell() {
     );
   }
 
-  // Signed in on the password the IT team issued: offer to change it, but let
-  // the supervisor carry on with the temporary one if they would rather.
-  const mustPrompt = session.mustResetPassword && !session.passwordPromptDone;
+  // Signed in on the password the IT team issued: must change it before
+  // continuing — no skip.
+  const mustPrompt = session.mustResetPassword;
   if (mustPrompt || showPasswordChange) {
     return (
       <ChangePasswordScreen
@@ -718,10 +717,6 @@ function Shell() {
         onDone={() => {
           setShowPasswordChange(false);
           setSession(sess => ({...sess, mustResetPassword: false, passwordPromptDone: true}));
-        }}
-        onSkip={async () => {
-          const updated = await dismissPasswordPrompt();
-          setSession(updated || {...session, passwordPromptDone: true});
         }}
       />
     );

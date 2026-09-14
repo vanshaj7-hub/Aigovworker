@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {alert} from '../alert';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
@@ -17,11 +17,12 @@ import {checkPassword} from '../domain/password';
 import {changeAccountPassword} from '../session';
 
 /**
- * Reached two ways: automatically after signing in with the temporary password
- * the IT team issued, where it can be skipped; or on demand from Home, where it
- * cannot be skipped but can be backed out of.
+ * Reached two ways: automatically and mandatorily after signing in with the
+ * temporary password the IT team issued (must be completed before the app
+ * can be used further — no skip); or on demand from Home, where it can be
+ * backed out of.
  */
-export default function ChangePasswordScreen({email, forced, onDone, onSkip, onBack}) {
+export default function ChangePasswordScreen({email, forced, onDone, onBack}) {
   const {t: tr} = useLang();
   const [current, setCurrent] = useState('');
   const [pw, setPw] = useState('');
@@ -108,12 +109,6 @@ export default function ChangePasswordScreen({email, forced, onDone, onSkip, onB
             busy={busy}
             disabled={!ready}
           />
-
-          {forced ? (
-            <Pressable onPress={onSkip} hitSlop={8} style={s.skip}>
-              <Text style={s.skipText}>{tr('keepTempPassword')}</Text>
-            </Pressable>
-          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -125,6 +120,4 @@ const s = StyleSheet.create({
   sub: {...t.bodyMuted, marginBottom: 22, lineHeight: 20},
   hintRow: {flexDirection: 'row', marginTop: -8, marginBottom: 18},
   hint: {...t.small, flex: 1, lineHeight: 16},
-  skip: {alignItems: 'center', paddingVertical: 18},
-  skipText: {color: c.primaryDark, fontSize: 14.5, fontWeight: '600'},
 });
