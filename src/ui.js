@@ -10,9 +10,38 @@ import {
   View,
 } from 'react-native';
 import MIcon from 'react-native-vector-icons/MaterialIcons';
+import Svg, {Circle, Path, Rect} from 'react-native-svg';
 import {c, elevation, r, t} from './theme';
 import {useLang} from './i18n';
 import {initials as toInitials} from './domain/shifts';
+
+/**
+ * The app's mark: a dashed geo-fence holding a verified person — the two
+ * things the app actually checks (attendance inside the ward boundary, a
+ * face match). From the "App Logo" design project, option B1. Colors are
+ * the app's own Google blue/green (c.primary / c.success), not hardcoded
+ * separately, so this stays in sync with the rest of the theme.
+ */
+export function AppLogoMark({size = 48}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 64 64">
+      <Rect
+        x={4}
+        y={4}
+        width={56}
+        height={56}
+        rx={16}
+        fill="none"
+        stroke={c.primary}
+        strokeWidth={5}
+        strokeDasharray="13 8"
+        strokeLinecap="round"
+      />
+      <Circle cx={32} cy={25} r={8.5} fill={c.success} />
+      <Path d="M17.5 47c0-8 6.5-13 14.5-13s14.5 5 14.5 13z" fill={c.success} />
+    </Svg>
+  );
+}
 
 /**
  * A softly pulsing placeholder block ("glass shade" loader) shown while real

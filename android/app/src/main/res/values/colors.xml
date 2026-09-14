@@ -1,0 +1,5 @@
+<resources>
+    <!-- Adaptive icon background: light blue container, matching theme.js's
+         c.primaryContainer used throughout the app. -->
+    <color name="ic_launcher_background">#E8F0FE</color>
+</resources>

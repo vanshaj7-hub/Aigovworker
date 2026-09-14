@@ -3,7 +3,7 @@ import {KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-na
 import {alert} from '../alert';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
-import {Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
+import {AppLogoMark, Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
 import {isEmail} from '../storage';
 import {authenticate} from '../session';
 
@@ -48,7 +48,7 @@ export default function SignInScreen({onSignedIn}) {
       <KeyboardAvoidingView behavior="height" style={{flex: 1}}>
         <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
           <View style={s.logo}>
-            <Icon name="location-city" size={34} color={c.primaryDeep} />
+            <AppLogoMark size={44} />
           </View>
           <Text style={s.title}>{tr('signInTitle')}</Text>
           <Text style={s.sub}>{tr('signInSub')}</Text>

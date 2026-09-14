@@ -94,8 +94,8 @@ android {
         applicationId "com.attendanceapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 28
-        versionName "4.5"
+        versionCode 1
+        versionName "1.0"
     }
     // The native face-embedding model (assets/mobile_face_net.tflite) and the
     // MediaPipe face landmarker model (assets/face_landmarker.task) must stay
