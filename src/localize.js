@@ -53,10 +53,7 @@ const KNOWN_NAMES_HI = {
   usha: 'ऊषा',
   savita: 'सविता',
   manoj: 'मनोज',
-  // Backend value is "Sumita"; given Hindi spelling is that of "Sumitra"
-  // (सुमित्रा). Kept as supplied — flag with whoever owns the roster if this
-  // looks like a mismatch rather than the worker's actual preferred spelling.
-  sumita: 'सुमित्रा',
+  sumita: 'सुमिता',
   asha: 'आशा',
   brajesh: 'ब्रजेश',
   ramnath: 'रामनाथ',
