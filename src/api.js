@@ -64,6 +64,49 @@ export const login = (email, password) =>
     password_hash: hashPassword(password),
   });
 
+/* -------------------------------------------------------- admin (DH/CSI/SI) */
+//
+// Shares /login and /update-password with the supervisor flow, but the admin
+// request shapes differ (no `role` field sent on login — the backend returns
+// whichever role the account actually has) per the admin app spec. These are
+// kept entirely separate from the supervisor functions above rather than
+// parameterizing them, so the supervisor login path can never be affected by
+// a change made here.
+
+export const adminLogin = (email, password) =>
+  post('/login', {
+    email: String(email).trim(),
+    password_hash: hashPassword(password),
+  });
+
+/**
+ * `role` must be the exact raw backend role string from the login response
+ * (e.g. "Zonal In-Charge"), not the app's internal normalized id — the
+ * backend expects it back verbatim.
+ */
+export const adminUpdatePassword = ({email, role, oldPassword, newPassword, updatedBy}) =>
+  post('/update-password', {
+    email: String(email).trim(),
+    role,
+    old_password_hash: hashPassword(oldPassword),
+    new_password_hash: hashPassword(newPassword),
+    updated_by: updatedBy || String(email).trim(),
+  });
+
+/**
+ * One shared endpoint for all three admin roles — the account's role is never
+ * sent; the backend infers scope from `email` alone. Exactly one of
+ * zoneCode/wardCode is ever populated (department_head filters by zone,
+ * csi/sanitary_inspector by ward); omit the key entirely for "every
+ * zone/ward in scope" rather than sending an empty string.
+ */
+export const adminDashboardHome = ({email, zoneCode, wardCode}) =>
+  post('/admin-dashboard-home', {
+    email: String(email).trim(),
+    ...(zoneCode ? {zone_code: zoneCode} : null),
+    ...(wardCode ? {ward_code: wardCode} : null),
+  });
+
 /* -------------------------------------------------------- 2 update password */
 export const updatePassword = ({email, oldPassword, newPassword, updatedBy}) =>
   post('/update-password', {

@@ -17,6 +17,7 @@ const K = {
   LOCATION_CHECKED: '@locationChecked',
   MATCH_LOG: '@matchLog',
   LAST_MATCH_DEBUG: '@lastMatchDebug',
+  ADMIN_SESSION: '@adminSession',
 };
 
 // Credentials are issued by the IT team; the app never creates accounts.
@@ -126,6 +127,25 @@ export async function markPasswordChanged() {
 
 export const getSession = () => read(K.SESSION, null);
 export const signOut = () => AsyncStorage.removeItem(K.SESSION);
+
+/* ------------------------------------------------------- admin (DH/CSI/SI) */
+//
+// Entirely separate storage key from the supervisor session above, so the two
+// can never collide and signing out of one never touches the other.
+// `loggedInAt`/TTL fields are stored per the admin app spec's session shape,
+// but nothing reads or enforces them yet — the spec itself flags the
+// reference app's TTL value as an unresolved discrepancy (10 minutes vs a
+// stale "24 hours" comment), so enforcement is deferred until that's
+// confirmed rather than guessed at.
+
+export async function saveAdminSession(user) {
+  const stored = {user, loggedInAt: Date.now()};
+  await write(K.ADMIN_SESSION, stored);
+  return stored;
+}
+
+export const getAdminSession = () => read(K.ADMIN_SESSION, null);
+export const signOutAdmin = () => AsyncStorage.removeItem(K.ADMIN_SESSION);
 
 // The start-of-day location check runs once, right after the profile is first
 // completed, and is remembered thereafter so the app does not re-gate on every
