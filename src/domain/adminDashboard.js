@@ -1,16 +1,15 @@
 // Pure mapping from the raw /admin-dashboard-home response to the view model
-// each role's Dashboard screen renders. No network, no React — see the admin
-// app spec §6 for the exact rules this implements; every rule below cites the
-// subsection it comes from.
+// the Dashboard screen renders, matching the "Admin App" design file's own
+// layout (one KPI table + one donut-split card + one lowest-wards list,
+// shared by all three roles — not three different widget sets per role).
+import {ac} from '../adminTheme';
 import {SHIFTS} from './shifts';
-import {initialsOf} from './adminWorkers';
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Shift time-window text and icon are not returned by the backend (spec
 // §6.3.B) — this app already has real shift windows for the supervisor flow
 // (domain/shifts.js), so those are reused here rather than guessing new ones.
 const SHIFT_ICONS = {1: 'wb-sunny', 2: 'wb-twilight'};
+const SHIFT_ICON_COLORS = {1: ac.blue, 2: ac.yellowDark};
 
 function shiftMeta(shiftId) {
   const s = SHIFTS.find(x => x.id === shiftId) || SHIFTS[0];
@@ -37,27 +36,9 @@ export function shiftStateLabel(shiftId, now = new Date()) {
 
 const round1 = n => Math.round((n || 0) * 10) / 10;
 
-const shortDate = iso => {
-  const [, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS[m - 1]}`;
-};
-
-const shortMonth = ym => {
-  const m = Number(ym.split('-')[1]);
-  return MONTHS[m - 1];
-};
-
-/** Headline "workers on roll" KPI (spec §6.3.A). */
-export function mapRollKpi(raw, role) {
-  const {total_workers, total_wards, total_zones} = raw.overview;
-  const subtitle =
-    role === 'sanitary_inspector'
-      ? `${total_wards} wards`
-      : `${total_wards} wards · ${total_zones} zones`;
-  return {value: String(total_workers), subtitle};
-}
-
-/** One card per shift (spec §6.3.B). */
+/** Shift metadata for the shift-selector pills used on Dashboard/Ward Map
+ * (name/icon/state) — kept separate from the KPI table rows below, which
+ * need the attendance counts too. */
 export function mapShiftCards(raw, now = new Date()) {
   return (raw.shift_wise_attendance || []).map(s => {
     const meta = shiftMeta(s.shift_id);
@@ -67,53 +48,58 @@ export function mapShiftCards(raw, now = new Date()) {
       window: meta.window,
       icon: meta.icon,
       state: shiftStateLabel(s.shift_id, now),
-      present: s.present_workers,
-      presentPct: round1(s.present_percentage),
-      absent: s.absent_workers,
-      absentPct: round1(s.absent_percentage),
-      onLeave: s.on_leave_workers,
-      leavePct: round1(s.leave_percentage),
     };
   });
 }
 
-/** Weekly/monthly bar charts (spec §6.3.C/D) — last point flagged so the UI
- * can emphasize it as "today's/most-recent" per the spec's visual note. */
-export function mapWeeklyChart(raw) {
-  const points = raw.weekly_attendance || [];
-  return points.map((p, i) => ({
-    label: shortDate(p.week_start_date),
-    value: p.total_attendance,
-    emphasized: i === points.length - 1,
-  }));
+/** The KPI card's compact per-shift table (spec §6.3.B): checked-in/absent
+ * counts+percentages, and an on-leave count (no percentage, matching the
+ * design). No "late" column here — late only shows up in the attendance
+ * split donut (CSI/SI) and in Worker Records. */
+export function mapShiftKpiRows(raw, now = new Date()) {
+  return (raw.shift_wise_attendance || []).map(s => {
+    const meta = shiftMeta(s.shift_id);
+    const state = shiftStateLabel(s.shift_id, now);
+    return {
+      shiftId: s.shift_id,
+      name: s.shift_name,
+      icon: meta.icon,
+      iconColor: SHIFT_ICON_COLORS[s.shift_id] || ac.blue,
+      stateColor: state === 'In progress' ? ac.blue : ac.grey400,
+      inN: s.present_workers,
+      inPct: `${round1(s.present_percentage)}%`,
+      absN: s.absent_workers,
+      absPct: `${round1(s.absent_percentage)}%`,
+      lvN: s.on_leave_workers,
+    };
+  });
 }
 
-export function mapMonthlyChart(raw) {
-  const points = raw.monthly_attendance || [];
-  return points.map((p, i) => ({
-    label: shortMonth(p.month),
-    value: p.total_attendance,
-    emphasized: i === points.length - 1,
-  }));
-}
+const ZONE_COLORS = [ac.blue, ac.red, ac.green, ac.yellow, ac.purple];
 
-/** Department Head / CSI "check-ins by zone" donut (spec §6.3.E). */
+/** Department Head "check-ins by zone" donut (spec §6.3.E) — the one role
+ * whose split is grouped by zone rather than by attendance status. */
 export function mapZoneSplit(raw, shiftId) {
   const rows = (raw.shift_zone_attendance || []).filter(r => r.shift_id === shiftId);
   const totalPresent = rows.reduce((sum, r) => sum + r.present_workers, 0) || 1;
-  const slices = rows.map(r => ({
+  const slices = rows.map((r, i) => ({
     name: r.zone_name,
     zoneCode: String(r.zone_code),
     value: r.present_workers,
     pct: round1((r.present_workers / totalPresent) * 100),
+    color: ZONE_COLORS[i % ZONE_COLORS.length],
   }));
   const shiftSummary = (raw.shift_wise_attendance || []).find(s => s.shift_id === shiftId);
-  return {total: shiftSummary ? shiftSummary.present_workers : totalPresent, unit: 'present', slices};
+  return {total: shiftSummary ? shiftSummary.present_workers : totalPresent, unit: 'checkIns', slices};
 }
 
-/** Sanitary Inspector "attendance split" donut: on-time/late/absent/on-leave
- * (spec §6.3.E). "Late" is a subset of "present", not an extra category. */
-export function mapSiSplit(raw, shiftId) {
+const STATUS_COLORS = {onTime: ac.green, late: ac.yellow, absent: ac.red, onLeave: ac.silver};
+
+/** CSI / Sanitary Inspector "attendance split" donut: on-time/late/absent/
+ * on-leave (spec §6.3.E). "Late" is a subset of "present", not an extra
+ * category. Both roles share this exact split in the design — only
+ * Department Head gets the zone-grouped one above. */
+export function mapAttendanceSplit(raw, shiftId) {
   const wardRows = (raw.ward_wise_attendance || []).filter(r => r.shift_id === shiftId);
   const present = wardRows.reduce((s, r) => s + r.present_workers, 0);
   const absent = wardRows.reduce((s, r) => s + r.absent_workers, 0);
@@ -126,21 +112,25 @@ export function mapSiSplit(raw, shiftId) {
   const pct = n => round1((n / total) * 100);
   return {
     total: present + absent + onLeave,
+    unit: 'workers',
     // `key` names an i18n string (onTime/late/absent/onLeave) rather than
-    // carrying display text itself — unlike zone/ward names elsewhere in this
-    // module, these four labels are UI copy this app invents, not data the
-    // backend returns, so they belong in strings.js like every other label.
+    // carrying display text itself — unlike zone names above, these four
+    // labels are UI copy this app invents, not data the backend returns.
     slices: [
-      {key: 'onTime', value: onTime, pct: pct(onTime)},
-      {key: 'late', value: late, pct: pct(late)},
-      {key: 'absent', value: absent, pct: pct(absent)},
-      {key: 'onLeave', value: onLeave, pct: pct(onLeave)},
+      {key: 'onTime', value: onTime, pct: pct(onTime), color: STATUS_COLORS.onTime},
+      {key: 'late', value: late, pct: pct(late), color: STATUS_COLORS.late},
+      {key: 'absent', value: absent, pct: pct(absent), color: STATUS_COLORS.absent},
+      {key: 'onLeave', value: onLeave, pct: pct(onLeave), color: STATUS_COLORS.onLeave},
     ],
   };
 }
 
-/** Department Head / CSI "Lowest attendance today" right panel (spec §6.3.F).
- * `supervisorName: null` means the caller should show a vacant placeholder. */
+const toneOf = pct => (pct < 75 ? 'red' : pct < 85 ? 'yellow' : 'neutral');
+
+/** "Lowest attendance today" list (spec §6.3.F) — shared by all three roles
+ * in the design (the reference app's role-specific right panels for CSI/SI
+ * are gone). `supervisorName: null` means the caller should show a vacant
+ * placeholder. */
 export function mapLowestWards(raw) {
   return (raw.lowest_3_wards || []).map((w, i) => ({
     rank: i + 1,
@@ -151,80 +141,25 @@ export function mapLowestWards(raw) {
     pct: Math.round(w.percentage),
     present: w.present_workers,
     total: w.total_workers,
-    tone: w.percentage < 75 ? 'red' : w.percentage < 85 ? 'yellow' : 'neutral',
+    tone: toneOf(w.percentage),
   }));
 }
 
-/** Sanitary Inspector "ward(s) at a glance" right panel (spec §6.3.F) — one
- * combined per-shift summary even with multiple wards; a known reference-app
- * simplification, kept as-is for this phase. */
-export function mapSiWardsAtGlance(raw, now = new Date()) {
-  const wardNames = Array.from(new Set((raw.ward_wise_attendance || []).map(r => r.ward_name)));
-  const title = wardNames.length === 1 ? wardNames[0] : 'Your wards at a glance';
-  return {title, shifts: mapShiftCards(raw, now)};
-}
-
-/** Sanitary Inspector "Workers needing a look" list, from late_workers (spec
- * §6.3.F). */
-export function mapWorkersNeedingALook(raw) {
-  return (raw.late_workers || []).map(w => ({
-    name: w.worker_name,
-    initials: initialsOf(w.worker_name),
-    wardCode: String(w.ward_code),
-    shiftName: w.shift_name,
-    time: w.attendance_time ? w.attendance_time.slice(11, 16) : null,
-  }));
-}
-
-/**
- * Header title/subtitle/scope label (spec §6.3.G). Deliberately derives the
- * Sanitary Inspector's header from the real response (overview /
- * ward_wise_attendance) instead of the reference app's mock fallback for
- * that role — the spec itself flags that gap and recommends fixing it
- * (open item 7). `subtitle` excludes the live "updated at" clock prefix,
- * which the screen adds itself since it's the viewer's current time, not
- * backend data, and so isn't something a pure/deterministic function should
- * produce.
- */
-export function mapHeader(raw, role) {
-  const {total_wards, total_workers, total_zones} = raw.overview;
-  let title;
-  let scopeLabel;
-  if (role === 'department_head') {
-    title = 'Attendance overview';
-    scopeLabel = 'All zones';
-  } else if (role === 'csi') {
-    const zoneNames = Array.from(new Set((raw.shift_zone_attendance || []).map(r => r.zone_name)));
-    title = zoneNames.length === 1 ? zoneNames[0] : `${total_zones} zones`;
-    scopeLabel = title;
-  } else {
-    const wardNames = Array.from(new Set((raw.ward_wise_attendance || []).map(r => r.ward_name)));
-    title = wardNames.length === 1 ? wardNames[0] : 'Your wards';
-    scopeLabel = title;
-  }
-  return {title, scopeLabel, subtitle: `${total_wards} wards · ${total_workers} workers`};
-}
-
-/** Builds the full per-role dashboard view model from one raw response. */
+/** Builds the full per-role dashboard view model from one raw response. The
+ * header (name/role/scope) and the split/lowest titles come from the
+ * signed-in user and simple counts already in `raw.overview`, not from a
+ * separate mapped field — see AdminDashboardScreen, which composes them
+ * with i18n templates since they depend on the session, not just this
+ * response. */
 export function mapDashboard(raw, role, {shiftId = 1, now = new Date()} = {}) {
-  const base = {
-    roll: mapRollKpi(raw, role),
-    shiftCards: mapShiftCards(raw, now),
-    weeklyChart: mapWeeklyChart(raw),
-    monthlyChart: mapMonthlyChart(raw),
-    header: mapHeader(raw, role),
-  };
-  if (role === 'sanitary_inspector') {
-    return {
-      ...base,
-      split: mapSiSplit(raw, shiftId),
-      rightPanel: {type: 'wardsAtAGlance', ...mapSiWardsAtGlance(raw, now)},
-      workersNeedingALook: mapWorkersNeedingALook(raw),
-    };
-  }
+  const {total_workers, total_wards, total_zones} = raw.overview;
   return {
-    ...base,
-    split: mapZoneSplit(raw, shiftId),
-    rightPanel: {type: 'lowestWards', items: mapLowestWards(raw)},
+    totalWorkers: total_workers,
+    totalWards: total_wards,
+    totalZones: total_zones,
+    shiftCards: mapShiftCards(raw, now),
+    shiftKpiRows: mapShiftKpiRows(raw, now),
+    split: role === 'department_head' ? mapZoneSplit(raw, shiftId) : mapAttendanceSplit(raw, shiftId),
+    lowest: mapLowestWards(raw),
   };
 }

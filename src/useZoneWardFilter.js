@@ -1,10 +1,16 @@
 // One reusable zone/ward filter shared by every admin screen (Dashboard,
-// Worker Records, Ward Map — spec §2.4): Department Head gets a zone
-// dropdown, CSI gets a ward dropdown scoped to their own zone(s), and
-// Sanitary Inspector gets a ward dropdown built straight from their own
-// scope with no directory call at all. Each screen owns its own instance and
-// decides what to do with the selected value (sent to the server, or applied
-// client-side) — this hook only owns the dropdown's options and selection.
+// Worker Records, Ward Map, Reports — spec §2.4). Department Head gets a
+// zone dropdown, CSI a ward dropdown scoped to their own zone(s), and
+// Sanitary Inspector a ward dropdown built straight from their own scope
+// with no directory call at all.
+//
+// Dashboard/Reports each show one pill — whichever the role's primaryFilter
+// is (`kind`/`value`/`setValue`, unchanged). Worker Records' design shows a
+// Zone pill AND a Ward pill together (its own, richer drill-down), so this
+// hook also exposes both independently: `zoneOptions`/`zoneValue`/
+// `setZoneValue` and `wardOptions`/`wardValue`/`setWardValue`, with the ward
+// list narrowing to the selected zone when one is picked (and resetting on
+// a new zone pick, same as the original spec's single-pill behavior).
 import {useEffect, useState} from 'react';
 import {primaryFilterFor, siWardOptions} from './domain/adminAuth';
 import {fetchZoneWardList} from './adminSession';
@@ -14,7 +20,8 @@ export function useZoneWardFilter(user) {
   const isSi = user.role === 'sanitary_inspector';
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(!isSi);
-  const [value, setValue] = useState(null); // selected code, or null = everything in scope
+  const [zoneValue, setZoneValueRaw] = useState(null);
+  const [wardValue, setWardValue] = useState(null);
 
   useEffect(() => {
     if (isSi) {
@@ -32,15 +39,39 @@ export function useZoneWardFilter(user) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.email, user.role]);
 
-  let options;
+  const setZoneValue = next => {
+    setZoneValueRaw(next);
+    setWardValue(null); // narrowing (or clearing) the zone resets any ward pick
+  };
+
+  // SI has no zone dropdown at all — its scope is wards, not zones.
+  const zoneOptions = isSi ? [] : zones.map(z => ({value: z.zoneCode, label: z.zoneName}));
+
+  let wardOptions;
   if (isSi) {
-    options = siWardOptions(user.scope).map(code => ({value: code, label: `Ward ${code}`}));
-  } else if (kind === 'zone') {
-    options = zones.map(z => ({value: z.zoneCode, label: z.zoneName}));
+    wardOptions = siWardOptions(user.scope).map(code => ({value: code, label: `Ward ${code}`}));
   } else {
     const inScope = z => user.scope.zoneIds === 'all' || user.scope.zoneIds.includes(z.zoneCode);
-    options = zones.filter(inScope).flatMap(z => z.wards.map(w => ({value: w.wardCode, label: w.wardName})));
+    const scopedZones = zones.filter(inScope);
+    const relevantZones = zoneValue ? scopedZones.filter(z => z.zoneCode === zoneValue) : scopedZones;
+    wardOptions = relevantZones.flatMap(z => z.wards.map(w => ({value: w.wardCode, label: w.wardName})));
   }
 
-  return {kind, options, loading, value, setValue};
+  const value = kind === 'zone' ? zoneValue : wardValue;
+  const setValue = kind === 'zone' ? setZoneValue : setWardValue;
+  const options = kind === 'zone' ? zoneOptions : wardOptions;
+
+  return {
+    kind,
+    value,
+    setValue,
+    options,
+    loading,
+    zoneOptions,
+    zoneValue,
+    setZoneValue,
+    wardOptions,
+    wardValue,
+    setWardValue,
+  };
 }

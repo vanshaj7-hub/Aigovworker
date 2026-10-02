@@ -1,20 +1,17 @@
 import React, {useState} from 'react';
 import {ActivityIndicator, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {alert} from '../alert';
-import {c, t} from '../theme';
+import {ac, ar} from '../adminTheme';
 import {useLang} from '../i18n';
 import {
   Banner,
-  Card,
-  Divider,
   EmptyState,
-  Field,
   FilledButton,
   FilterChip,
+  FilterPillButton,
   LanguageToggle,
   PickerField,
   Screen,
-  StatusPill,
   TextButton,
 } from '../ui';
 import DatePickerSheet from '../DatePickerSheet';
@@ -93,7 +90,6 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
         <Text style={s.title}>{tr('reports')}</Text>
         <LanguageToggle />
       </View>
-      <Divider />
 
       <ScrollView contentContainerStyle={s.body}>
         {error ? <Banner tone="error" icon="error-outline" body={error} /> : null}
@@ -104,8 +100,8 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
           ))}
         </View>
         <View style={s.dateRow}>
-          <Field label={tr('fromDate')} value={fromDate} onPress={() => setDateTarget('from')} style={{flex: 1, marginRight: 8}} />
-          <Field label={tr('toDate')} value={toDate} onPress={() => setDateTarget('to')} style={{flex: 1}} />
+          <FilterPillButton icon="event" label={fromDate} onPress={() => setDateTarget('from')} chevron={false} style={{flex: 1}} />
+          <FilterPillButton icon="event" label={toDate} onPress={() => setDateTarget('to')} chevron={false} style={{flex: 1}} />
         </View>
 
         {zw.options.length > 0 ? (
@@ -117,41 +113,40 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
               onChange={zw.setValue}
               allLabel={zw.kind === 'zone' ? tr('filterAllZones') : tr('filterAllWards')}
             />
-            <Text style={[t.small, {marginTop: -10, marginBottom: 16}]}>{tr('scopeNote')}</Text>
+            <Text style={s.scopeNote}>{tr('scopeNote')}</Text>
           </>
         ) : null}
 
-        <Text style={[t.label, {marginBottom: 8}]}>{tr('generateReport')}</Text>
+        <Text style={s.sectionLabel}>{tr('generateReport')}</Text>
         <View style={s.pillRow}>
           <FilterChip label={tr('formatCsv')} selected={format === 'csv'} onPress={() => setFormat('csv')} />
           <FilterChip label={tr('formatPdf')} selected={format === 'pdf'} onPress={() => setFormat('pdf')} />
         </View>
-        <Text style={[t.small, {marginBottom: 16}]}>{format === 'csv' ? tr('formatCsvNote') : tr('formatPdfNote')}</Text>
+        <Text style={s.formatNote}>{format === 'csv' ? tr('formatCsvNote') : tr('formatPdfNote')}</Text>
 
         <FilledButton label={tr('generateReport')} onPress={submit} busy={generating} style={{marginBottom: 24}} />
 
-        <Text style={[t.label, {marginBottom: 10}]}>{tr('recentExports')}</Text>
+        <Text style={s.sectionLabel}>{tr('recentExports')}</Text>
         {loading && !recent ? (
-          <ActivityIndicator color={c.primary} />
+          <ActivityIndicator color={ac.blue} />
         ) : !recent || recent.length === 0 ? (
           <EmptyState icon="description" text={tr('noReportsYet')} />
         ) : (
           recent.map(r => (
-            <Card key={r.id} style={s.reportRow}>
+            <View key={r.id} style={[s.card, s.reportRow]}>
               <View style={{flex: 1}}>
                 <Text style={s.range}>{r.range}</Text>
-                <Text style={t.small}>{r.scope}</Text>
-                <Text style={t.small}>{r.when}</Text>
+                <Text style={s.metaText}>{r.scope}</Text>
+                <Text style={s.metaText}>{r.when}</Text>
               </View>
-              <StatusPill label={r.format.toUpperCase()} tone="neutral" style={{marginRight: 10}} />
-              <TextButton
-                label={downloadingId === r.id ? '…' : tr('download')}
-                onPress={() => download(r)}
-              />
-            </Card>
+              <View style={s.formatPill}>
+                <Text style={s.formatPillText}>{r.format.toUpperCase()}</Text>
+              </View>
+              <TextButton label={downloadingId === r.id ? '…' : tr('download')} onPress={() => download(r)} />
+            </View>
           ))
         )}
-        <Text style={[t.small, s.footerNote]}>{tr('reportsFooterNote')}</Text>
+        <Text style={s.footerNote}>{tr('reportsFooterNote')}</Text>
       </ScrollView>
 
       <DatePickerSheet
@@ -172,13 +167,20 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: c.surface,
+    backgroundColor: ac.white,
   },
-  title: {fontSize: 17, fontWeight: '600', color: c.text},
+  title: {fontSize: 17, fontWeight: '500', color: ac.textPrimary},
   body: {padding: 16, paddingBottom: 32},
   pillRow: {flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap'},
-  dateRow: {flexDirection: 'row', marginBottom: 16},
+  dateRow: {flexDirection: 'row', gap: 8, marginBottom: 16},
+  sectionLabel: {fontSize: 11.5, fontWeight: '600', color: ac.grey700, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8},
+  scopeNote: {fontSize: 11, color: ac.textSecondary, marginTop: -10, marginBottom: 16},
+  formatNote: {fontSize: 11, color: ac.textSecondary, marginBottom: 16},
+  card: {backgroundColor: ac.white, borderWidth: 1, borderColor: ac.border, borderRadius: ar.card, padding: 14},
   reportRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 10},
-  range: {fontSize: 14.5, fontWeight: '600', color: c.text},
-  footerNote: {lineHeight: 17, marginTop: 8},
+  range: {fontSize: 14.5, fontWeight: '500', color: ac.textPrimary},
+  metaText: {fontSize: 11, color: ac.textSecondary},
+  formatPill: {backgroundColor: ac.grey100, borderRadius: ar.pill, paddingHorizontal: 10, paddingVertical: 4, marginRight: 10},
+  formatPillText: {fontSize: 10, fontWeight: '600', color: ac.grey700},
+  footerNote: {fontSize: 11, color: ac.textSecondary, lineHeight: 17, marginTop: 8},
 });

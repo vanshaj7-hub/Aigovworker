@@ -267,7 +267,23 @@ export function Field({
  * options (the admin spec's own rule of thumb for when a plain list gets
  * unwieldy).
  */
-export function PickerField({label, value, options, onChange, allLabel, placeholder, style}) {
+/** Slim rounded-pill trigger — the filter/date chip style used across every
+ * admin screen. `onPress` omitted renders it as a plain (non-interactive)
+ * chip, e.g. the Dashboard's read-only "today" display. */
+export function FilterPillButton({icon, label, onPress, style, disabled, chevron = true}) {
+  const Wrap = onPress ? Pressable : View;
+  return (
+    <Wrap onPress={onPress} disabled={disabled} style={[s.filterPill, style]}>
+      {icon ? <Icon name={icon} size={15} color={c.textMuted} style={{marginRight: 6}} /> : null}
+      <Text style={s.filterPillText} numberOfLines={1}>
+        {label}
+      </Text>
+      {onPress && chevron ? <Icon name="expand-more" size={16} color={c.textMuted} style={{marginLeft: 4}} /> : null}
+    </Wrap>
+  );
+}
+
+export function PickerField({label, value, options, onChange, allLabel, placeholder, style, icon = 'filter-alt'}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const selected = options.find(o => o.value === value);
@@ -281,12 +297,10 @@ export function PickerField({label, value, options, onChange, allLabel, placehol
 
   return (
     <>
-      <Field
-        label={label}
-        value={selected ? selected.label : allLabel || ''}
+      <FilterPillButton
+        icon={icon}
+        label={selected ? selected.label : allLabel || placeholder || label}
         onPress={() => setOpen(true)}
-        placeholder={placeholder}
-        right={<Icon name="expand-more" size={22} />}
         style={style}
       />
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
@@ -631,6 +645,16 @@ const s = StyleSheet.create({
   modalBg: {flex: 1, backgroundColor: '#00000066', justifyContent: 'flex-end'},
   sheet: {backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20},
   sheetRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 15},
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: r.pill,
+    borderWidth: 1,
+    borderColor: '#BDC1C6', // design's --border-strong; theme.js has no equivalent token
+  },
+  filterPillText: {flex: 1, fontSize: 13, color: c.text},
   pickerSearch: {
     height: 44,
     borderWidth: 1,

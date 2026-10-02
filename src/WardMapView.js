@@ -22,7 +22,12 @@ export default function WardMapView({boundary, point, height = 180, style}) {
         originWhitelist={['*']}
         source={{html}}
         style={s.webview}
-        scrollEnabled={false}
+        // Leaflet handles pan/pinch-zoom itself inside the page; the WebView
+        // must stay scrollable (not scrollEnabled={false}) for Android to
+        // deliver those touch gestures to it at all.
+        scrollEnabled
+        overScrollMode="never"
+        nestedScrollEnabled
         javaScriptEnabled
       />
     </View>
@@ -36,9 +41,13 @@ function buildHtml(boundary, point) {
   return `<!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>html, body, #map { height: 100%; margin: 0; padding: 0; background: #E8EAED; }</style>
+<style>
+  html, body, #map { height: 100%; margin: 0; padding: 0; background: #E8EAED; }
+  .leaflet-control-zoom a { width: 32px; height: 32px; line-height: 32px; font-size: 18px; }
+  .leaflet-control-attribution { font-size: 9px; }
+</style>
 </head>
 <body>
 <div id="map"></div>
@@ -46,8 +55,17 @@ function buildHtml(boundary, point) {
 <script>
   var boundary = ${polygon};
   var pin = ${pin};
-  var map = L.map('map', {zoomControl: false, attributionControl: false});
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+  var map = L.map('map', {
+    zoomControl: false,
+    zoomAnimation: true,
+    markerZoomAnimation: true,
+    bounceAtZoomLimits: true,
+  });
+  L.control.zoom({position: 'topright'}).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(map);
   var bounds = [];
   if (boundary.length) {
     L.polygon(boundary, {color: '#4285F4', weight: 2, fillColor: '#4285F4', fillOpacity: 0.12}).addTo(map);
