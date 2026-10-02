@@ -3,15 +3,18 @@ import {KeyboardAvoidingView, ScrollView, StyleSheet, Text, View} from 'react-na
 import {alert} from '../alert';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
-import {AppLogoMark, Field, FilledButton, Icon, LanguageToggle, Screen} from '../ui';
+import {AppLogoMark, Field, FilledButton, Icon, LanguageToggle, RoleToggle, Screen} from '../ui';
 import {isEmail} from '../storage';
 import {authenticate} from '../session';
+import {adminAuthenticate} from '../adminSession';
 
-export default function SignInScreen({onSignedIn}) {
+export default function SignInScreen({onSignedIn, onAdminSignedIn}) {
   const {t: tr} = useLang();
+  const [role, setRole] = useState('sup');
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
+  const isAdmin = role === 'adm';
 
   const submit = async () => {
     if (!email.trim()) {
@@ -24,6 +27,20 @@ export default function SignInScreen({onSignedIn}) {
     }
     setBusy(true);
     try {
+      if (isAdmin) {
+        const res = await adminAuthenticate(email, pw);
+        if (res.ok) {
+          onAdminSignedIn(res.user);
+        } else if (res.reason === 'network') {
+          alert(tr('signInFailed'), res.message || tr('uploadNetwork'));
+        } else {
+          alert(
+            tr('signInFailed'),
+            res.reason === 'unrecognizedRole' ? tr('adminUnrecognizedRole') : tr('adminSignInFailedBody'),
+          );
+        }
+        return;
+      }
       const res = await authenticate(email, pw);
       if (res.ok) {
         onSignedIn(res.session);
@@ -50,12 +67,19 @@ export default function SignInScreen({onSignedIn}) {
           <View style={s.logo}>
             <AppLogoMark size={44} />
           </View>
-          <Text style={s.title}>{tr('signInTitle')}</Text>
-          <Text style={s.sub}>{tr('signInSub')}</Text>
+          <Text style={s.title}>{tr(isAdmin ? 'adminSignInTitle' : 'signInTitle')}</Text>
+          <Text style={s.sub}>{tr(isAdmin ? 'adminSignInSub' : 'signInSub')}</Text>
 
-          <View style={{height: 28}} />
+          <View style={{height: 24}} />
+          <RoleToggle
+            value={role}
+            onChange={setRole}
+            supLabel={tr('loginAsSupervisor')}
+            admLabel={tr('loginAsAdmin')}
+            style={{marginBottom: 20}}
+          />
           <Field
-            label={tr('emailAddress')}
+            label={tr(isAdmin ? 'adminEmailAddress' : 'emailAddress')}
             value={email}
             onChangeText={setEmail}
             icon="alternate-email"

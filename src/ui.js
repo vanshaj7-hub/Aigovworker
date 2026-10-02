@@ -480,6 +480,31 @@ export function LanguageToggle({style}) {
   );
 }
 
+/** Sign-in screen's Supervisor/Admin switch — picks which login flow and
+ * credentials the screen collects. `value` is 'sup' | 'adm'. */
+export function RoleToggle({value, onChange, supLabel, admLabel, style}) {
+  const opts = [
+    {key: 'sup', label: supLabel, icon: 'badge'},
+    {key: 'adm', label: admLabel, icon: 'insights'},
+  ];
+  return (
+    <View style={[s.roleWrap, style]}>
+      {opts.map(opt => {
+        const on = value === opt.key;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onChange(opt.key)}
+            style={[s.roleBtn, on && s.roleBtnOn]}>
+            <Icon name={opt.icon} size={18} color={on ? c.primaryDark : c.textMuted} style={{marginRight: 8}} />
+            <Text style={[s.roleLabel, on && {color: c.primaryDark, fontWeight: '700'}]}>{opt.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** Live password-policy checklist used on sign-up and password reset. */
 export function PasswordChecklist({results, labels, style}) {
   return (
@@ -676,6 +701,18 @@ const s = StyleSheet.create({
   langBtn: {paddingHorizontal: 14, paddingVertical: 5, borderRadius: r.pill},
   langBtnOn: {backgroundColor: c.surface, ...elevation},
   langLabel: {fontSize: 13.5, color: c.textMuted, fontWeight: '600'},
+
+  roleWrap: {flexDirection: 'row', backgroundColor: c.fill, borderRadius: r.pill, padding: 4},
+  roleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 38,
+    borderRadius: r.pill,
+  },
+  roleBtnOn: {backgroundColor: c.surface, ...elevation},
+  roleLabel: {fontSize: 14, color: c.textMuted, fontWeight: '600'},
 
   bottomBar: {
     borderTopWidth: 1,

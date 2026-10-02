@@ -41,6 +41,8 @@ import {
   faceErrorMessage,
 } from './face';
 import {logMatchAttempt, setLastMatchDebug} from './storage';
+import {getStoredAdminUser} from './adminSession';
+import AdminShell from './AdminShell';
 
 import SignInScreen from './screens/SignInScreen';
 import ChangePasswordScreen from './screens/ChangePasswordScreen';
@@ -75,7 +77,7 @@ function useDelayedFlag(active, delay = 350) {
   return on;
 }
 
-function Shell() {
+function Shell({onAdminSignedIn}) {
   const {t: tr} = useLang();
   const [booted, setBooted] = useState(false);
   const [session, setSession] = useState(null);
@@ -701,6 +703,7 @@ function Shell() {
           setData(all);
           setScreen('home');
         }}
+        onAdminSignedIn={onAdminSignedIn}
       />
     );
   }
@@ -1172,11 +1175,44 @@ const netStyles = {
   body: {fontSize: 14.5, color: c.textMuted, marginTop: 10, textAlign: 'center', lineHeight: 21},
 };
 
+// Decides, before anything else mounts, whether this device opens into the
+// supervisor app (Shell, unchanged) or the admin app (AdminShell) — an
+// existing admin session takes over the boot the same way an existing
+// supervisor session does inside Shell. Kept outside Shell entirely so
+// signing in as an admin never runs Shell's own boot sequence (permissions,
+// supervisor session/workspace load) at all.
+function AppRoot() {
+  const [booted, setBooted] = useState(false);
+  const [adminUser, setAdminUser] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const u = await getStoredAdminUser();
+      setAdminUser(u);
+      setBooted(true);
+    })();
+  }, []);
+
+  if (!booted) {
+    return (
+      <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface}}>
+        <ActivityIndicator color={c.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (adminUser) {
+    return <AdminShell user={adminUser} onSignedOut={() => setAdminUser(null)} />;
+  }
+
+  return <Shell onAdminSignedIn={setAdminUser} />;
+}
+
 export default function App() {
   return (
     <LanguageProvider>
       <StatusBar barStyle="dark-content" backgroundColor={c.surface} />
-      <Shell />
+      <AppRoot />
     </LanguageProvider>
   );
 }

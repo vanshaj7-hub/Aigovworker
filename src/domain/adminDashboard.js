@@ -134,11 +134,15 @@ export function mapSiSplit(raw, shiftId) {
   const pct = n => round1((n / total) * 100);
   return {
     total: present + absent + onLeave,
+    // `key` names an i18n string (onTime/late/absent/onLeave) rather than
+    // carrying display text itself — unlike zone/ward names elsewhere in this
+    // module, these four labels are UI copy this app invents, not data the
+    // backend returns, so they belong in strings.js like every other label.
     slices: [
-      {name: 'On time', value: onTime, pct: pct(onTime)},
-      {name: 'Late', value: late, pct: pct(late)},
-      {name: 'Absent', value: absent, pct: pct(absent)},
-      {name: 'On leave', value: onLeave, pct: pct(onLeave)},
+      {key: 'onTime', value: onTime, pct: pct(onTime)},
+      {key: 'late', value: late, pct: pct(late)},
+      {key: 'absent', value: absent, pct: pct(absent)},
+      {key: 'onLeave', value: onLeave, pct: pct(onLeave)},
     ],
   };
 }

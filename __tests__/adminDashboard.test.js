@@ -183,10 +183,10 @@ describe('mapSiSplit', () => {
     expect(mapSiSplit(RAW, 1)).toEqual({
       total: 42,
       slices: [
-        {name: 'On time', value: 33, pct: 78.6},
-        {name: 'Late', value: 2, pct: 4.8},
-        {name: 'Absent', value: 5, pct: 11.9},
-        {name: 'On leave', value: 2, pct: 4.8},
+        {key: 'onTime', value: 33, pct: 78.6},
+        {key: 'late', value: 2, pct: 4.8},
+        {key: 'absent', value: 5, pct: 11.9},
+        {key: 'onLeave', value: 2, pct: 4.8},
       ],
     });
   });
