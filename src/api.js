@@ -107,6 +107,40 @@ export const adminDashboardHome = ({email, zoneCode, wardCode}) =>
     ...(wardCode ? {ward_code: wardCode} : null),
   });
 
+/**
+ * Zone/ward directory — populates the Department Head's zone dropdown and
+ * the CSI's ward dropdown (scoped to their own zone). `zoneCode` is optional:
+ * omit it for every zone with its wards, or pass it for just that zone's
+ * wards. Sanitary Inspector never calls this — its ward options come
+ * straight from the login response's scope (domain/adminAuth.js).
+ */
+export const getZoneWardList = ({email, zoneCode}) =>
+  post('/get-zone-ward-list', {
+    email: String(email).trim(),
+    ...(zoneCode ? {zone_code: zoneCode} : null),
+  });
+
+/**
+ * The Worker Records screen's one network call — a full day's attendance for
+ * every worker in the account's scope. Search, status, and ward/zone
+ * filtering are all client-side over this response (spec §7.1); only `day`
+ * (or the logged-in user) should trigger a re-fetch.
+ */
+export const adminWorkers = ({email, day}) =>
+  post('/workers', {email: String(email).trim(), day});
+
+/**
+ * The Ward Map screen's one network call. The shift selector is never sent —
+ * it only changes which client-side percentage is derived per ward (spec
+ * §8.1); only the date range genuinely changes what comes back.
+ */
+export const adminWardAttendanceReport = ({email, fromDate, toDate}) =>
+  post('/ward-attendance-report', {
+    email: String(email).trim(),
+    from_date: fromDate,
+    to_date: toDate,
+  });
+
 /* -------------------------------------------------------- 2 update password */
 export const updatePassword = ({email, oldPassword, newPassword, updatedBy}) =>
   post('/update-password', {

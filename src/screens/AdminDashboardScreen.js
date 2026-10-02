@@ -10,6 +10,7 @@ import {
   Icon,
   LanguageToggle,
   LegendDot,
+  PickerField,
   ProgressBar,
   Screen,
   SectionLabel,
@@ -70,7 +71,7 @@ function ShiftCard({shift}) {
   );
 }
 
-export default function AdminDashboardScreen({user, raw, loading, error, onRefresh, onSignOut}) {
+export default function AdminDashboardScreen({user, raw, loading, error, onRefresh, onSignOut, zw}) {
   const {t: tr} = useLang();
   const [shiftId, setShiftId] = useState(1);
 
@@ -107,6 +108,15 @@ export default function AdminDashboardScreen({user, raw, loading, error, onRefre
       <Divider />
 
       <ScrollView contentContainerStyle={s.body}>
+        {zw && zw.options.length > 0 ? (
+          <PickerField
+            label={zw.kind === 'zone' ? tr('filterAllZones') : tr('filterAllWards')}
+            value={zw.value}
+            options={zw.options}
+            onChange={zw.setValue}
+            allLabel={zw.kind === 'zone' ? tr('filterAllZones') : tr('filterAllWards')}
+          />
+        ) : null}
         {error ? (
           <Banner
             tone="error"

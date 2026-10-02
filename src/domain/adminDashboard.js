@@ -3,6 +3,7 @@
 // app spec §6 for the exact rules this implements; every rule below cites the
 // subsection it comes from.
 import {SHIFTS} from './shifts';
+import {initialsOf} from './adminWorkers';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -45,15 +46,6 @@ const shortMonth = ym => {
   const m = Number(ym.split('-')[1]);
   return MONTHS[m - 1];
 };
-
-const initialsOf = name =>
-  String(name || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase();
 
 /** Headline "workers on roll" KPI (spec §6.3.A). */
 export function mapRollKpi(raw, role) {

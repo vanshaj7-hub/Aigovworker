@@ -4,6 +4,7 @@
 // can affect the supervisor flow.
 import * as api from './api';
 import {buildAdminUser, primaryFilterFor} from './domain/adminAuth';
+import {normalizeZoneWardList} from './domain/zoneWard';
 import {getAdminSession, saveAdminSession, signOutAdmin} from './storage';
 
 /**
@@ -79,4 +80,23 @@ export async function fetchAdminDashboard(user, filterValue) {
       ? {email: user.email, zoneCode: filterValue || undefined}
       : {email: user.email, wardCode: filterValue || undefined};
   return api.adminDashboardHome(params);
+}
+
+/**
+ * Zone/ward directory for the Department Head zone dropdown and the CSI ward
+ * dropdown. `zoneCode` scopes to one zone's wards; omit it for every zone.
+ */
+export async function fetchZoneWardList(user, zoneCode) {
+  const raw = await api.getZoneWardList({email: user.email, zoneCode: zoneCode || undefined});
+  return normalizeZoneWardList(raw);
+}
+
+/** The Worker Records screen's one fetch — a full day's attendance. */
+export async function fetchAdminWorkers(user, day) {
+  return api.adminWorkers({email: user.email, day});
+}
+
+/** The Ward Map screen's one fetch — a date-range attendance report. */
+export async function fetchWardAttendanceReport(user, {fromDate, toDate}) {
+  return api.adminWardAttendanceReport({email: user.email, fromDate, toDate});
 }

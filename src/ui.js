@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -253,6 +255,82 @@ export function Field({
         </View>
       ) : null}
     </Wrap>
+  );
+}
+
+/**
+ * A Field that opens a bottom-sheet list of options instead of a keyboard —
+ * the zone/ward filter dropdown shared across every admin screen, and
+ * reusable anywhere else a simple single-select list is needed. `options` is
+ * `[{value, label}]`; `allLabel`, when given, adds a leading "every option"
+ * row that selects `null`. Gains a search box once there are more than 8
+ * options (the admin spec's own rule of thumb for when a plain list gets
+ * unwieldy).
+ */
+export function PickerField({label, value, options, onChange, allLabel, placeholder, style}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = options.find(o => o.value === value);
+  const searchable = options.length > 8;
+  const filtered = searchable && query.trim() ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase())) : options;
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <>
+      <Field
+        label={label}
+        value={selected ? selected.label : allLabel || ''}
+        onPress={() => setOpen(true)}
+        placeholder={placeholder}
+        right={<Icon name="expand-more" size={22} />}
+        style={style}
+      />
+      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+        <Pressable style={s.modalBg} onPress={close}>
+          <View style={s.sheet} onStartShouldSetResponder={() => true}>
+            <Text style={[t.label, {marginBottom: 8}]}>{label}</Text>
+            {searchable ? (
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={placeholder}
+                placeholderTextColor={c.textMuted}
+                style={s.pickerSearch}
+              />
+            ) : null}
+            <ScrollView style={{maxHeight: 360}}>
+              {allLabel ? (
+                <Pressable
+                  onPress={() => {
+                    onChange(null);
+                    close();
+                  }}
+                  style={s.sheetRow}>
+                  <Text style={[t.body, {flex: 1, fontSize: 16}]}>{allLabel}</Text>
+                  {value == null ? <Icon name="check" size={20} color={c.primary} /> : null}
+                </Pressable>
+              ) : null}
+              {filtered.map(opt => (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => {
+                    onChange(opt.value);
+                    close();
+                  }}
+                  style={s.sheetRow}>
+                  <Text style={[t.body, {flex: 1, fontSize: 16}]}>{opt.label}</Text>
+                  {value === opt.value ? <Icon name="check" size={20} color={c.primary} /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -549,6 +627,20 @@ const s = StyleSheet.create({
   appBarIcon: {marginRight: 16},
   appBarTitle: {fontSize: 20, fontWeight: '600', color: c.text},
   divider: {height: 1, backgroundColor: c.outlineSoft},
+
+  modalBg: {flex: 1, backgroundColor: '#00000066', justifyContent: 'flex-end'},
+  sheet: {backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20},
+  sheetRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 15},
+  pickerSearch: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: c.outline,
+    borderRadius: r.field,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: c.text,
+    marginBottom: 6,
+  },
 
   sectionRow: {
     flexDirection: 'row',
