@@ -106,7 +106,7 @@ export default function AdminWorkerRecordsScreen({raw, loading, error, onRefresh
       <View style={s.filters}>
         {error ? <Banner tone="error" icon="error-outline" body={error} /> : null}
         <Field
-          label={tr('searchWorkers')}
+          label={tr('adminSearchWorkers')}
           value={search}
           onChangeText={v => resetAndFilter(() => setSearch(v))}
           icon="search"

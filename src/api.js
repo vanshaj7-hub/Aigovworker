@@ -141,6 +141,27 @@ export const adminWardAttendanceReport = ({email, fromDate, toDate}) =>
     to_date: toDate,
   });
 
+/** Lists this account's previously generated reports (spec §10.2). */
+export const recentAttendanceReports = ({email}) =>
+  post('/recent-attendance-reports', {email: String(email).trim()});
+
+/**
+ * Generates a new report (spec §10.3). `zoneCodes`/`wardCodes`, when given,
+ * must be omitted entirely for "every zone/ward in scope" — never sent as an
+ * empty array, which the backend treats as a different thing (no scope at
+ * all). Callers must only pass these when a specific single zone/ward is
+ * selected.
+ */
+export const attendanceReport = ({email, fromDate, toDate, zoneCodes, wardCodes, format}) =>
+  post('/attendance-report', {
+    email: String(email).trim(),
+    date_from: fromDate,
+    date_to: toDate,
+    ...(zoneCodes && zoneCodes.length ? {zone_codes: zoneCodes} : null),
+    ...(wardCodes && wardCodes.length ? {ward_codes: wardCodes} : null),
+    format,
+  });
+
 /* -------------------------------------------------------- 2 update password */
 export const updatePassword = ({email, oldPassword, newPassword, updatedBy}) =>
   post('/update-password', {

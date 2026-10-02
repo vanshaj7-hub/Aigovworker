@@ -4,6 +4,7 @@
 // can affect the supervisor flow.
 import * as api from './api';
 import {buildAdminUser, primaryFilterFor} from './domain/adminAuth';
+import {buildGenerateRequest, mapRecentReports} from './domain/adminReports';
 import {normalizeZoneWardList} from './domain/zoneWard';
 import {getAdminSession, saveAdminSession, signOutAdmin} from './storage';
 
@@ -99,4 +100,27 @@ export async function fetchAdminWorkers(user, day) {
 /** The Ward Map screen's one fetch — a date-range attendance report. */
 export async function fetchWardAttendanceReport(user, {fromDate, toDate}) {
   return api.adminWardAttendanceReport({email: user.email, fromDate, toDate});
+}
+
+/** The Reports screen's "previously generated" list. */
+export async function fetchRecentReports(user) {
+  const raw = await api.recentAttendanceReports({email: user.email});
+  return mapRecentReports(raw);
+}
+
+/**
+ * Generates a new report. Returns {ok: true, fileUrl} or {ok: false, message}
+ * — storage/service-account-looking errors are left for the caller to
+ * recognize via domain/adminReports.js's isStoragePermissionError and show a
+ * friendlier message, per spec §10.4.
+ */
+export async function generateReport(user, {fromDate, toDate, filterValue, format}) {
+  const primaryFilter = primaryFilterFor(user.role);
+  const body = buildGenerateRequest({email: user.email, fromDate, toDate, primaryFilter, filterValue, format});
+  try {
+    const raw = await api.attendanceReport(body);
+    return {ok: true, fileUrl: raw.file_url};
+  } catch (err) {
+    return {ok: false, message: err.message};
+  }
 }

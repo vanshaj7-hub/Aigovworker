@@ -12,6 +12,7 @@ import {
   adminSignOut,
   fetchAdminDashboard,
   fetchAdminWorkers,
+  fetchRecentReports,
   fetchWardAttendanceReport,
 } from './adminSession';
 import {useZoneWardFilter} from './useZoneWardFilter';
@@ -20,6 +21,7 @@ import AdminDashboardScreen from './screens/AdminDashboardScreen';
 import AdminWorkerRecordsScreen from './screens/AdminWorkerRecordsScreen';
 import AdminWorkerDetailScreen from './screens/AdminWorkerDetailScreen';
 import AdminWardMapScreen from './screens/AdminWardMapScreen';
+import AdminReportsScreen from './screens/AdminReportsScreen';
 
 const NETWORK_FALLBACK = 'Could not reach the server. Check your connection and try again.';
 
@@ -29,6 +31,7 @@ function AdminTabBar({screen, onChange, showWardMap}) {
     {key: 'dashboard', icon: 'dashboard', label: tr('navDashboard')},
     {key: 'workers', icon: 'groups', label: tr('navWorkers')},
     ...(showWardMap ? [{key: 'wardMap', icon: 'map', label: tr('navWardMap')}] : []),
+    {key: 'reports', icon: 'description', label: tr('reports')},
   ];
   return (
     <View style={s.tabBar}>
@@ -122,6 +125,28 @@ export default function AdminShell({user: initialUser, onSignedOut}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, wardMapRange]);
 
+  // -------------------------------------------------------------- reports
+  const [recentReports, setRecentReports] = useState(null);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState(null);
+  const loadReports = useCallback(async () => {
+    setReportsLoading(true);
+    setReportsError(null);
+    try {
+      setRecentReports(await fetchRecentReports(user));
+    } catch (err) {
+      setReportsError((err && err.message) || NETWORK_FALLBACK);
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (screen === 'reports' && !recentReports && !reportsLoading) {
+      loadReports();
+    }
+  }, [screen, recentReports, reportsLoading, loadReports]);
+
   if (user.mustChangePassword) {
     return <AdminChangePasswordScreen user={user} onDone={setUser} />;
   }
@@ -158,6 +183,17 @@ export default function AdminShell({user: initialUser, onSignedOut}) {
         fromDate={wardMapRange.fromDate}
         toDate={wardMapRange.toDate}
         onDateChange={setWardMapRange}
+      />
+    );
+  } else if (screen === 'reports') {
+    body = (
+      <AdminReportsScreen
+        user={user}
+        recent={recentReports}
+        loading={reportsLoading}
+        error={reportsError}
+        onRefresh={loadReports}
+        zw={zw}
       />
     );
   } else {
