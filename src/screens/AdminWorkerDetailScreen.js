@@ -1,12 +1,23 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {Image, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {c, t} from '../theme';
 import {useLang} from '../i18n';
 import {AppBar, Avatar, Card, Divider, Icon, Screen, StatusPill} from '../ui';
+import WardMapView from '../WardMapView';
+import {demoWardGeo} from '../demoGeo';
 
 const STATUS_TONE = {present: 'present', absent: 'absent', on_leave: 'leave', not_marked: 'neutral'};
 
-function ShiftDetail({label, cell}) {
+function ShiftDetail({label, cell, wardCode}) {
+  const {t: tr} = useLang();
+  // Demo boundary + pin — the backend has no confirmed lat/lng or ward
+  // boundary field yet (see demoGeo.js). Only shown for a present shift,
+  // where there is an actual capture to place a pin for.
+  const geo = useMemo(
+    () => (cell.status === 'present' ? demoWardGeo(wardCode, cell.location === 'inside_fence') : null),
+    [wardCode, cell.status, cell.location],
+  );
+
   return (
     <Card style={s.shiftCard}>
       <View style={s.shiftHead}>
@@ -31,6 +42,15 @@ function ShiftDetail({label, cell}) {
         />
         <Text style={[t.body, {marginLeft: 8}]}>{cell.locationLabel}</Text>
       </View>
+      {geo ? (
+        <>
+          <WardMapView boundary={geo.boundary} point={geo.point} style={{marginTop: 12}} />
+          <Text style={[t.small, {marginTop: 6}]}>
+            {geo.point.lat.toFixed(4)}, {geo.point.lng.toFixed(4)} · {tr('gpsAccuracy', {m: geo.point.accuracy})}
+          </Text>
+          <Text style={s.demoNote}>{tr('demoLocationNote')}</Text>
+        </>
+      ) : null}
       {cell.hasPhoto ? (
         <Image source={{uri: cell.photoUrl}} style={s.photo} resizeMode="cover" />
       ) : (
@@ -60,8 +80,8 @@ export default function AdminWorkerDetailScreen({worker, onBack}) {
           </View>
         </View>
 
-        <ShiftDetail label={tr('shift1')} cell={worker.shift1} />
-        <ShiftDetail label={tr('shift2')} cell={worker.shift2} />
+        <ShiftDetail label={tr('shift1')} cell={worker.shift1} wardCode={worker.wardCode} />
+        <ShiftDetail label={tr('shift2')} cell={worker.shift2} wardCode={worker.wardCode} />
       </ScrollView>
     </Screen>
   );
@@ -77,6 +97,7 @@ const s = StyleSheet.create({
   lateRow: {flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 6},
   lateText: {fontSize: 13, fontWeight: '600', color: c.warningStrong},
   locationRow: {flexDirection: 'row', alignItems: 'center', marginTop: 12},
+  demoNote: {...t.small, color: c.warningStrong, marginTop: 2, fontStyle: 'italic'},
   photo: {width: '100%', height: 160, borderRadius: 10, marginTop: 12, backgroundColor: c.fill},
   photoEmpty: {alignItems: 'center', justifyContent: 'center'},
 });
