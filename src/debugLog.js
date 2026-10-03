@@ -6,8 +6,13 @@
 const MAX_ENTRIES = 200;
 let entries = [];
 
+// Local time, not toISOString() (which is always UTC and would read hours
+// off from the device's own clock — exactly what made an export look like
+// it was timestamped in the wrong timezone).
 function timestamp() {
-  return new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const d = new Date();
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
 /** Appends one line. `data`, if given, is JSON-stringified onto the line. */
