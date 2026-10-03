@@ -102,31 +102,6 @@ export default function AdminWardMapScreen({user, raw, loading, error, fromDate,
 
         {dash ? (
           <>
-            <View style={s.card}>
-              <SummaryRow color={ac.greenDark} label={tr('aboveNinety')} value={dash.summary.above90} />
-              <SummaryRow color={ac.green} label={tr('eightyToNinety')} value={dash.summary.between80and90} />
-              <SummaryRow color={ac.yellow} label={tr('belowEighty')} value={dash.summary.below80} />
-              <SummaryRow color={ac.grey400} label={tr('notReporting')} value={dash.summary.wardsNotReporting} />
-            </View>
-
-            {dash.attention.length > 0 ? (
-              <>
-                <Text style={s.sectionLabel}>{tr('needsAttention')}</Text>
-                {dash.attention.map(a => (
-                  <View key={a.wardNumber} style={[s.card, s.attentionRow]}>
-                    <View style={{flex: 1}}>
-                      <Text style={s.wardName}>{a.wardName}</Text>
-                      <Text style={s.metaText}>
-                        {a.zone} · {a.supervisor}
-                      </Text>
-                      <Text style={s.attentionNote}>{tr('underPctForDays', {n: dash.attentionWindowDays})}</Text>
-                    </View>
-                    <Text style={s.attentionPct}>{a.presentPct}%</Text>
-                  </View>
-                ))}
-              </>
-            ) : null}
-
             <SegTrack
               value={viewMode}
               onChange={setViewMode}
@@ -221,6 +196,36 @@ export default function AdminWardMapScreen({user, raw, loading, error, fromDate,
                   </View>
                 ))
               : null}
+
+            {dash.attention.length > 0 ? (
+              <>
+                <Text style={s.sectionLabel}>{tr('needsAttention')}</Text>
+                {dash.attention.map(a => (
+                  <View key={a.wardNumber} style={[s.card, s.attentionRow]}>
+                    <View style={{flex: 1}}>
+                      <Text style={s.wardName}>{a.wardName}</Text>
+                      <Text style={s.metaText}>
+                        {a.zone} · {a.supervisor}
+                      </Text>
+                      <Text style={s.attentionNote}>{tr('underPctForDays', {n: dash.attentionWindowDays})}</Text>
+                    </View>
+                    <Text style={s.attentionPct}>{a.presentPct}%</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            <Text style={s.sectionLabel}>
+              {tr('wardSitHeading', {
+                n: dash.summary.above90 + dash.summary.between80and90 + dash.summary.below80 + dash.summary.wardsNotReporting,
+              })}
+            </Text>
+            <View style={s.card}>
+              <SummaryRow color={ac.greenDark} label={tr('aboveNinety')} value={dash.summary.above90} />
+              <SummaryRow color={ac.green} label={tr('eightyToNinety')} value={dash.summary.between80and90} />
+              <SummaryRow color={ac.yellow} label={tr('belowEighty')} value={dash.summary.below80} />
+              <SummaryRow color={ac.grey400} label={tr('notReporting')} value={dash.summary.wardsNotReporting} />
+            </View>
           </>
         ) : null}
       </ScrollView>

@@ -10,12 +10,8 @@ const ROLE_LABEL_KEY = {department_head: 'roleLabelDeptHead', csi: 'roleLabelCsi
 const TONE_BG = {red: ac.redLight, yellow: ac.yellowLight, neutral: ac.grey100};
 const TONE_FG = {red: ac.redDark, yellow: ac.yellowDark, neutral: ac.grey800};
 
-function todayShort(lang) {
-  return new Date().toLocaleDateString(lang === 'hi' ? 'hi-IN' : 'en-GB', {day: 'numeric', month: 'short'});
-}
-
 export default function AdminDashboardScreen({user, raw, loading, error, onRefresh, onSignOut, zw}) {
-  const {t: tr, lang} = useLang();
+  const {t: tr} = useLang();
   const [shiftId, setShiftId] = useState(1);
 
   const dash = useMemo(() => (raw ? mapDashboard(raw, user.role, {shiftId}) : null), [raw, user.role, shiftId]);
@@ -74,7 +70,6 @@ export default function AdminDashboardScreen({user, raw, loading, error, onRefre
         ) : (
           <FilterPillButton icon="filter-alt" label={user.scope.label} style={{flex: 1}} />
         )}
-        <FilterPillButton icon="event" label={todayShort(lang)} style={{marginLeft: 8}} />
       </View>
 
       <ScrollView contentContainerStyle={s.body}>

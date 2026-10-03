@@ -64,8 +64,16 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
         alert(tr('reports'), msg);
         return;
       }
-      alert(tr('reportGenerated'), tr('reportGeneratedBody'));
       onRefresh();
+      // Hand the freshly generated file straight to the share sheet instead
+      // of just pointing at "Recent exports below" — generating a report is
+      // the point of this screen, so the result should be immediately
+      // actionable, not a second lookup-and-tap away.
+      try {
+        await downloadReportFile(res.fileUrl, filenameFromUrl(res.fileUrl));
+      } catch (err) {
+        alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
+      }
     } finally {
       setGenerating(false);
     }
@@ -74,9 +82,7 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
   const download = async report => {
     setDownloadingId(report.id);
     try {
-      const name = filenameFromUrl(report.fileUrl);
-      await downloadReportFile(report.fileUrl, name);
-      alert(tr('downloaded'), tr('downloadedBody', {name}));
+      await downloadReportFile(report.fileUrl, filenameFromUrl(report.fileUrl));
     } catch (err) {
       alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
     } finally {
@@ -174,7 +180,7 @@ const s = StyleSheet.create({
   pillRow: {flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap'},
   dateRow: {flexDirection: 'row', gap: 8, marginBottom: 16},
   sectionLabel: {fontSize: 11.5, fontWeight: '600', color: ac.grey700, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8},
-  scopeNote: {fontSize: 11, color: ac.textSecondary, marginTop: -10, marginBottom: 16},
+  scopeNote: {fontSize: 11, color: ac.textSecondary, marginTop: 6, marginBottom: 16},
   formatNote: {fontSize: 11, color: ac.textSecondary, marginBottom: 16},
   card: {backgroundColor: ac.white, borderWidth: 1, borderColor: ac.border, borderRadius: ar.card, padding: 14},
   reportRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 10},
