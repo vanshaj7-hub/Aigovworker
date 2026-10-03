@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ActivityIndicator, ScrollView, StyleSheet, Text, ToastAndroid, View} from 'react-native';
+import {ActivityIndicator, ScrollView, Share, StyleSheet, Text, ToastAndroid, View} from 'react-native';
 import {alert} from '../alert';
 import {ac, ar} from '../adminTheme';
 import {useLang} from '../i18n';
@@ -15,6 +15,7 @@ import {
   TextButton,
 } from '../ui';
 import DatePickerSheet from '../DatePickerSheet';
+import {getLogText} from '../debugLog';
 import {datePresetRange, filenameFromUrl, isStoragePermissionError} from '../domain/adminReports';
 import {generateReport} from '../adminSession';
 import {downloadReportFile} from '../adminDownload';
@@ -92,6 +93,14 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
     }
   };
 
+  // Temporary while the download path is still being diagnosed: lets
+  // whoever is testing send back exactly what happened on their device
+  // (connection, HTTP status, save step) instead of a guess from here with
+  // no way to see the actual failure.
+  const exportLogs = () => {
+    Share.share({message: getLogText()}).catch(() => {});
+  };
+
   return (
     <Screen>
       <View style={s.header}>
@@ -155,6 +164,7 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
           ))
         )}
         <Text style={s.footerNote}>{tr('reportsFooterNote')}</Text>
+        <TextButton label={tr('exportLogs')} onPress={exportLogs} style={{alignSelf: 'flex-start', marginTop: 12}} />
       </ScrollView>
 
       <DatePickerSheet

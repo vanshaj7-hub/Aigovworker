@@ -12,10 +12,12 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -28,30 +30,56 @@ import java.net.URL
  * into the public Downloads folder, showing a completion notification that
  * opens it on tap.
  *
- * This is the third approach for this one feature. The first used
- * android.app.DownloadManager to do the whole download itself; its HTTP
- * fetch never reliably completed against the report-file host (two rounds
- * of a bare "Download unsuccessful" with no real diagnostic, even after
- * adding an auth header it turned out not to need — the file lives in
- * Firebase Storage and is fetched with a plain, unauthenticated GET, same
- * as this app's existing photo download URLs; see upload.js). The second
- * moved the transfer to RNFS.downloadFile in JS, which then stalled
- * silently (a "download started" toast and then nothing — no success, no
- * error) with no timeout to fall back on. This version does the fetch
- * itself with a plain HttpURLConnection and explicit connect/read
- * timeouts, streaming the response straight into the destination — no
- * intermediate file, and a hang can no longer look like silent nothing.
+ * This is the third approach for this one feature, after DownloadManager
+ * (its own HTTP fetch never reliably completed against the report-file
+ * host) and RNFS.downloadFile in JS (stalled with no timeout — a "download
+ * started" toast and then nothing, forever). This version does the fetch
+ * itself with a plain HttpURLConnection, explicit timeouts, and — because
+ * guessing blind has failed twice already — emits a log event at every
+ * step via RNSaveFileLog, so a run that still goes wrong is something the
+ * app can show rather than something nobody can see. The outer catch is
+ * Throwable, not Exception: the previous version's silent hang was exactly
+ * the failure mode of a promise that never settles, and an uncaught Error
+ * (not an Exception) on this thread would have been invisible the same way.
  */
 class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
   override fun getName() = "RNSaveFile"
 
+  private fun log(message: String) {
+    try {
+      val params = Arguments.createMap()
+      params.putString("message", message)
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("RNSaveFileLog", params)
+    } catch (e: Throwable) {
+      // Logging must never be the thing that breaks the download.
+    }
+  }
+
   @ReactMethod
   fun downloadAndSave(url: String, filename: String, mimeType: String, promise: Promise) {
     Thread {
+      var settled = false
+      fun resolve(value: String) {
+        if (!settled) {
+          settled = true
+          promise.resolve(value)
+        }
+      }
+      fun reject(code: String, message: String, cause: Throwable? = null) {
+        log("FAILED: $code: $message")
+        if (!settled) {
+          settled = true
+          promise.reject(code, message, cause)
+        }
+      }
+
       var connection: HttpURLConnection? = null
       try {
+        log("connecting (sdk=${Build.VERSION.SDK_INT}, filename=$filename, mimeType=$mimeType)")
         connection = (URL(url).openConnection() as HttpURLConnection).apply {
           connectTimeout = 30000
           readTimeout = 30000
@@ -59,23 +87,44 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
         }
         connection.connect()
         val code = connection.responseCode
+        val length = connection.contentLengthLong
+        log("connected: HTTP $code, content-length=$length")
         if (code !in 200..299) {
-          promise.reject("HTTP_ERROR", "The file host rejected the request (HTTP $code).")
+          reject("HTTP_ERROR", "The file host rejected the request (HTTP $code).")
           return@Thread
         }
-        connection.inputStream.use { input ->
-          val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+
+        val savedUri = connection.inputStream.use { input ->
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            log("saving via MediaStore")
             saveViaMediaStore(input, filename, mimeType)
           } else {
+            log("saving via legacy public-Downloads file path")
             saveLegacy(input, filename)
           }
-          showCompletionNotification(filename, mimeType, uri)
-          promise.resolve(uri.toString())
         }
-      } catch (e: Exception) {
-        promise.reject("DOWNLOAD_ERROR", e.message, e)
+        log("save complete: $savedUri")
+
+        try {
+          showCompletionNotification(filename, mimeType, savedUri)
+          log("notification shown")
+        } catch (e: Throwable) {
+          // The file is already saved — a notification failure shouldn't
+          // turn into a reported download failure.
+          log("notification failed (file still saved): ${e.javaClass.simpleName}: ${e.message}")
+        }
+        resolve(savedUri.toString())
+      } catch (e: Throwable) {
+        reject("DOWNLOAD_ERROR", "${e.javaClass.simpleName}: ${e.message}", e)
       } finally {
         connection?.disconnect()
+        // Safety net: if something above returned or threw in a way that
+        // skipped both resolve() and reject() (shouldn't happen, but a
+        // silently hung promise is exactly the bug this rewrite exists to
+        // kill), the caller still gets an answer instead of waiting forever.
+        if (!settled) {
+          reject("UNKNOWN_ERROR", "The download ended without a result.")
+        }
       }
     }.start()
   }
@@ -94,7 +143,8 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
       ?: throw IllegalStateException("Could not create a file in Downloads.")
     val out: OutputStream = resolver.openOutputStream(uri)
       ?: throw IllegalStateException("Could not open Downloads for writing.")
-    out.use { stream -> input.copyTo(stream) }
+    val bytes = out.use { stream -> input.copyTo(stream) }
+    log("wrote $bytes bytes via MediaStore")
     values.clear()
     values.put(MediaStore.Downloads.IS_PENDING, 0)
     resolver.update(uri, values, null, null)
@@ -108,7 +158,8 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
     val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
     dir.mkdirs()
     val dest = File(dir, filename)
-    FileOutputStream(dest).use { out -> input.copyTo(out) }
+    val bytes = FileOutputStream(dest).use { out -> input.copyTo(out) }
+    log("wrote $bytes bytes via legacy file path")
     return FileProvider.getUriForFile(reactContext, "${reactContext.packageName}.fileprovider", dest)
   }
 
@@ -137,10 +188,6 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
       .setContentIntent(pendingIntent)
       .setAutoCancel(true)
       .build()
-    try {
-      manager.notify(filename.hashCode(), notification)
-    } catch (e: SecurityException) {
-      // POST_NOTIFICATIONS was denied — the file is still saved either way.
-    }
+    manager.notify(filename.hashCode(), notification)
   }
 }

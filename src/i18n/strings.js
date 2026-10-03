@@ -100,6 +100,7 @@ export const STRINGS = {
     downloadStarted: 'Download started',
     reportsFooterNote:
       'Files you generated · kept for 90 days. Each report covers both shifts per worker with capture time/status, late/leave marked, scoped to your own zone/ward access.',
+    exportLogs: 'Export logs',
     // 02 profile
     completeProfile: 'Complete your profile',
     stepOf: 'Step {a} of {b}',
@@ -505,6 +506,7 @@ export const STRINGS = {
     downloadStarted: 'डाउनलोड शुरू हो गया',
     reportsFooterNote:
       'आपकी बनाई फ़ाइलें · 90 दिनों तक सुरक्षित रहती हैं। हर रिपोर्ट दोनों शिफ़्ट, प्रत्येक कर्मचारी का कैप्चर समय/स्थिति और लेट/अवकाश दर्शाती है, और आपके ज़ोन/वार्ड तक सीमित है।',
+    exportLogs: 'लॉग निर्यात करें',
     completeProfile: 'अपनी प्रोफ़ाइल पूरी करें',
     stepOf: 'चरण {a} / {b}',
     addYourPhoto: 'अपनी फ़ोटो जोड़ें',

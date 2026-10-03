@@ -4,6 +4,7 @@
 // for worker photos (see upload.js's downloadUrl()), fetchable with a plain
 // GET and no credentials. The native module does the actual fetch and the
 // save into the public Downloads folder in one step (downloadManager.js).
+import {logEvent, redactUrl} from './debugLog';
 import {downloadToDownloads} from './downloadManager';
 
 const MIME_BY_FORMAT = {csv: 'text/csv', pdf: 'application/pdf'};
@@ -14,7 +15,15 @@ const MIME_BY_FORMAT = {csv: 'text/csv', pdf: 'application/pdf'};
  * mystery. */
 export async function downloadReportFile(fileUrl, filename, format) {
   if (!fileUrl) {
+    logEvent('js', 'downloadReportFile called with no fileUrl');
     throw new Error('This report has no file to download yet.');
   }
-  await downloadToDownloads({url: fileUrl, filename, mimeType: MIME_BY_FORMAT[format]});
+  logEvent('js', 'downloadReportFile: starting', {url: redactUrl(fileUrl), filename, format});
+  try {
+    const result = await downloadToDownloads({url: fileUrl, filename, mimeType: MIME_BY_FORMAT[format]});
+    logEvent('js', 'downloadReportFile: resolved', {result});
+  } catch (err) {
+    logEvent('js', 'downloadReportFile: rejected', {message: err && err.message});
+    throw err;
+  }
 }
