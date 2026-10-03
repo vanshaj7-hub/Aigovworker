@@ -104,8 +104,56 @@ export function isStoragePermissionError(message) {
   return STORAGE_ERROR_PATTERNS.some(re => re.test(text));
 }
 
+/** A URL's scheme://host[:port], without the `URL` global — Hermes doesn't
+ * provide one in this app (no polyfill is pulled in), so this is plain
+ * string parsing, same style as `filenameFromUrl` below. */
+export function hostOf(url) {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(String(url || ''));
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** True when `url` and `base` are served from the same host — used to decide
+ * whether a report-file download should carry the backend's auth header. A
+ * signed storage URL (Firebase/GCS) carries its own auth in the query
+ * string; adding an unrelated header there can invalidate the signature
+ * instead of helping, so the header is only sent to our own backend host. */
+export function isSameHost(url, base) {
+  const a = hostOf(url);
+  const b = hostOf(base);
+  return !!a && !!b && a === b;
+}
+
+const DOWNLOAD_ERROR_TEXT = {
+  1001: 'A file error occurred on the device.',
+  1002: 'The server returned an unexpected response.',
+  1004: 'A connection error occurred.',
+  1005: 'Too many redirects.',
+  1006: 'Not enough storage space on the device.',
+  1007: 'No SD card found.',
+  1008: 'The download could not be resumed.',
+  1009: 'A file with this name already exists.',
+};
+
+/** Turns a DownloadManager completion `reason` into a readable message — the
+ * OS notification alone only ever says "Download unsuccessful". `reason` is
+ * either a raw HTTP status code (<1000, meaning the file host rejected the
+ * request — most often an auth problem) or a DownloadManager ERROR_*
+ * constant (>=1000, an on-device failure). */
+export function describeDownloadFailure(reason) {
+  const n = Number(reason);
+  if (n >= 400 && n < 600) {
+    return `The file host rejected the request (HTTP ${n}).`;
+  }
+  return DOWNLOAD_ERROR_TEXT[n] || 'The download failed for an unknown reason.';
+}
+
+const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;
+
 /** Last path segment of a URL, decoded and stripped of any query string —
- * used to name a downloaded report file when nothing better is given. */
+ * used to name a downloaded report file when nothing better is given.
+ * Characters a device's filesystem can't store in a filename (a colon from
+ * a timestamp, say) are replaced with "_" — DownloadManager fails the whole
+ * transfer, silently, if the destination name is invalid. */
 export function filenameFromUrl(url) {
   if (!url) {
     return 'report';
@@ -113,7 +161,8 @@ export function filenameFromUrl(url) {
   try {
     const noQuery = String(url).split('?')[0];
     const last = noQuery.substring(noQuery.lastIndexOf('/') + 1);
-    return decodeURIComponent(last) || 'report';
+    const decoded = decodeURIComponent(last) || 'report';
+    return decoded.replace(INVALID_FILENAME_CHARS, '_');
   } catch (e) {
     return 'report';
   }

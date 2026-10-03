@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, ScrollView, StyleSheet, Text, ToastAndroid, View} from 'react-native';
 import {alert} from '../alert';
 import {ac, ar} from '../adminTheme';
@@ -17,7 +17,7 @@ import {
 import DatePickerSheet from '../DatePickerSheet';
 import {datePresetRange, filenameFromUrl, isStoragePermissionError} from '../domain/adminReports';
 import {generateReport} from '../adminSession';
-import {downloadReportFile} from '../adminDownload';
+import {addDownloadCompleteListener, describeDownloadFailure, downloadReportFile} from '../adminDownload';
 
 const PRESETS = ['today', 'thisWeek', 'thisMonth', 'custom'];
 const PRESET_KEY = {today: 'presetToday', thisWeek: 'presetThisWeek', thisMonth: 'presetThisMonth', custom: 'presetCustom'};
@@ -32,6 +32,19 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
   const [dateTarget, setDateTarget] = useState(null); // null | 'from' | 'to'
   const [generating, setGenerating] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
+
+  // The OS "download complete" notification only ever says "Download
+  // unsuccessful" with no detail when the transfer fails — this is how the
+  // app finds out why (wrong credential, server error, etc.) instead of
+  // leaving it a mystery.
+  useEffect(() => {
+    const sub = addDownloadCompleteListener(({successful, reason}) => {
+      if (!successful) {
+        alert(tr('downloadFailed'), describeDownloadFailure(reason));
+      }
+    });
+    return () => sub.remove();
+  }, [tr]);
 
   const pickPreset = key => {
     setPreset(key);
