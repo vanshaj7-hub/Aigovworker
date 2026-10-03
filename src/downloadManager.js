@@ -1,24 +1,22 @@
 // JS wrapper for the native RNSaveFile module (see
-// android/.../savefile/SaveToDownloadsModule.kt). Android's own
-// DownloadManager turned out not to reliably fetch these report files
-// itself — two rounds of a bare "Download unsuccessful" with no real
-// diagnostic, even after adding the backend's auth header — so the actual
-// HTTP transfer now happens in JS via RNFS (see adminDownload.js), which
-// had already proven it could fetch these exact files. This native module
-// only does the part that still needs native APIs: writing the
-// already-downloaded bytes into the public Downloads folder (via
-// MediaStore on Android 10+, where a plain file path is otherwise blocked)
-// and showing the "tap to open" completion notification.
+// android/.../savefile/SaveToDownloadsModule.kt). The module does the whole
+// job itself — fetching the report straight from its storage-bucket URL
+// and saving it into the public Downloads folder — rather than JS handing
+// it an already-downloaded file. An earlier version did the fetch in JS via
+// RNFS, which turned out to stall silently against this host with no
+// timeout to recover from (a "download started" toast and then nothing);
+// the native fetch below has explicit connect/read timeouts so a stall can
+// no longer look like silent nothing.
 import {NativeModules} from 'react-native';
 
 const {RNSaveFile} = NativeModules;
 
-/** Copies the already-downloaded file at `sourcePath` into the public
- * Downloads folder under `filename` and shows a completion notification
- * that opens it on tap. Resolves/rejects once the save itself finishes. */
-export function saveToDownloads({sourcePath, filename, mimeType}) {
+/** Downloads `url` straight to the public Downloads folder under `filename`
+ * and shows a completion notification that opens it on tap. Resolves/
+ * rejects once the whole download + save finishes. */
+export function downloadToDownloads({url, filename, mimeType}) {
   if (!RNSaveFile) {
     return Promise.reject(new Error('Save-to-Downloads is not available on this build.'));
   }
-  return RNSaveFile.save(sourcePath, filename, mimeType || 'application/octet-stream');
+  return RNSaveFile.downloadAndSave(url, filename, mimeType || 'application/octet-stream');
 }

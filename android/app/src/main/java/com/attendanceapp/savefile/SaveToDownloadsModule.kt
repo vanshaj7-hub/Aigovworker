@@ -17,27 +17,30 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * Copies an already-downloaded file (fetched in JS via RNFS — see
- * adminDownload.js) into the public Downloads folder and shows a
- * completion notification that opens it on tap.
+ * Downloads a report file straight from its storage-bucket URL and saves it
+ * into the public Downloads folder, showing a completion notification that
+ * opens it on tap.
  *
- * This replaced a version that used android.app.DownloadManager to do the
- * whole download itself; DownloadManager's own HTTP fetch would not
- * reliably complete against the report-file host (two rounds of a bare
- * "Download unsuccessful" with no real diagnostic, even after adding the
- * right auth header), while RNFS had already proven it could fetch these
- * exact files — the very first version of this feature used it, and its
- * only bug was where it saved the result, not whether it could fetch it.
- * So the transfer happens in JS now, and this module only does the part
- * that needs native APIs: Android 10+'s scoped storage requires MediaStore
- * (not a plain file path) to put a new file in the public Downloads
- * folder, and a channel + PendingIntent to show our own notification
- * (DownloadManager showed its own for free; doing our own save means doing
- * our own notification too).
+ * This is the third approach for this one feature. The first used
+ * android.app.DownloadManager to do the whole download itself; its HTTP
+ * fetch never reliably completed against the report-file host (two rounds
+ * of a bare "Download unsuccessful" with no real diagnostic, even after
+ * adding an auth header it turned out not to need — the file lives in
+ * Firebase Storage and is fetched with a plain, unauthenticated GET, same
+ * as this app's existing photo download URLs; see upload.js). The second
+ * moved the transfer to RNFS.downloadFile in JS, which then stalled
+ * silently (a "download started" toast and then nothing — no success, no
+ * error) with no timeout to fall back on. This version does the fetch
+ * itself with a plain HttpURLConnection and explicit connect/read
+ * timeouts, streaming the response straight into the destination — no
+ * intermediate file, and a hang can no longer look like silent nothing.
  */
 class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -45,23 +48,41 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
   override fun getName() = "RNSaveFile"
 
   @ReactMethod
-  fun save(sourcePath: String, filename: String, mimeType: String, promise: Promise) {
-    try {
-      val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        saveViaMediaStore(sourcePath, filename, mimeType)
-      } else {
-        saveLegacy(sourcePath, filename)
+  fun downloadAndSave(url: String, filename: String, mimeType: String, promise: Promise) {
+    Thread {
+      var connection: HttpURLConnection? = null
+      try {
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
+          connectTimeout = 30000
+          readTimeout = 30000
+          requestMethod = "GET"
+        }
+        connection.connect()
+        val code = connection.responseCode
+        if (code !in 200..299) {
+          promise.reject("HTTP_ERROR", "The file host rejected the request (HTTP $code).")
+          return@Thread
+        }
+        connection.inputStream.use { input ->
+          val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            saveViaMediaStore(input, filename, mimeType)
+          } else {
+            saveLegacy(input, filename)
+          }
+          showCompletionNotification(filename, mimeType, uri)
+          promise.resolve(uri.toString())
+        }
+      } catch (e: Exception) {
+        promise.reject("DOWNLOAD_ERROR", e.message, e)
+      } finally {
+        connection?.disconnect()
       }
-      showCompletionNotification(filename, mimeType, uri)
-      promise.resolve(uri.toString())
-    } catch (e: Exception) {
-      promise.reject("SAVE_ERROR", e.message, e)
-    }
+    }.start()
   }
 
   /** Android 10+: a plain file path into the public Downloads folder is
    * blocked by scoped storage — MediaStore is the sanctioned way in. */
-  private fun saveViaMediaStore(sourcePath: String, filename: String, mimeType: String): Uri {
+  private fun saveViaMediaStore(input: InputStream, filename: String, mimeType: String): Uri {
     val resolver = reactContext.contentResolver
     val values = ContentValues().apply {
       put(MediaStore.Downloads.DISPLAY_NAME, filename)
@@ -71,9 +92,9 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
     }
     val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
       ?: throw IllegalStateException("Could not create a file in Downloads.")
-    val out = resolver.openOutputStream(uri)
+    val out: OutputStream = resolver.openOutputStream(uri)
       ?: throw IllegalStateException("Could not open Downloads for writing.")
-    out.use { stream -> FileInputStream(sourcePath).use { input -> input.copyTo(stream) } }
+    out.use { stream -> input.copyTo(stream) }
     values.clear()
     values.put(MediaStore.Downloads.IS_PENDING, 0)
     resolver.update(uri, values, null, null)
@@ -83,13 +104,11 @@ class SaveToDownloadsModule(private val reactContext: ReactApplicationContext) :
   /** Below Android 10: scoped storage doesn't apply — WRITE_EXTERNAL_STORAGE
    * (declared maxSdkVersion 28) lets a plain file path reach the public
    * Downloads folder directly. */
-  private fun saveLegacy(sourcePath: String, filename: String): Uri {
+  private fun saveLegacy(input: InputStream, filename: String): Uri {
     val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
     dir.mkdirs()
     val dest = File(dir, filename)
-    FileInputStream(sourcePath).use { input ->
-      FileOutputStream(dest).use { out -> input.copyTo(out) }
-    }
+    FileOutputStream(dest).use { out -> input.copyTo(out) }
     return FileProvider.getUriForFile(reactContext, "${reactContext.packageName}.fileprovider", dest)
   }
 

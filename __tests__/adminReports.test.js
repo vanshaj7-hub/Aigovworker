@@ -3,7 +3,6 @@ import {
   datePresetRange,
   filenameFromUrl,
   formatScopePart,
-  isSameHost,
   isStoragePermissionError,
   mapRecentReports,
   shortDisplayDate,
@@ -165,21 +164,5 @@ describe('filenameFromUrl', () => {
 
   it('replaces characters a filesystem cannot store in a filename', () => {
     expect(filenameFromUrl('https://x.firebasestorage.app/reports/Report%2010:30:00.csv')).toBe('Report 10_30_00.csv');
-  });
-});
-
-describe('isSameHost', () => {
-  it('is true when both URLs share a host', () => {
-    expect(isSameHost('https://api.example.com/reports/7.csv', 'https://api.example.com')).toBe(true);
-    expect(isSameHost('https://api.example.com:443/x', 'https://api.example.com:443/y')).toBe(true);
-  });
-
-  it('is false for a different host, e.g. a signed storage URL', () => {
-    expect(isSameHost('https://storage.googleapis.com/bucket/7.csv', 'https://api.example.com')).toBe(false);
-  });
-
-  it('is false when either URL is missing or unparseable', () => {
-    expect(isSameHost(null, 'https://api.example.com')).toBe(false);
-    expect(isSameHost('https://api.example.com/x', null)).toBe(false);
   });
 });

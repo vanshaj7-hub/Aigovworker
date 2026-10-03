@@ -104,25 +104,6 @@ export function isStoragePermissionError(message) {
   return STORAGE_ERROR_PATTERNS.some(re => re.test(text));
 }
 
-/** A URL's scheme://host[:port], without the `URL` global — Hermes doesn't
- * provide one in this app (no polyfill is pulled in), so this is plain
- * string parsing, same style as `filenameFromUrl` below. */
-export function hostOf(url) {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(String(url || ''));
-  return match ? match[1].toLowerCase() : null;
-}
-
-/** True when `url` and `base` are served from the same host — used to decide
- * whether a report-file download should carry the backend's auth header. A
- * signed storage URL (Firebase/GCS) carries its own auth in the query
- * string; adding an unrelated header there can invalidate the signature
- * instead of helping, so the header is only sent to our own backend host. */
-export function isSameHost(url, base) {
-  const a = hostOf(url);
-  const b = hostOf(base);
-  return !!a && !!b && a === b;
-}
-
 const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;
 
 /** Last path segment of a URL, decoded and stripped of any query string —
