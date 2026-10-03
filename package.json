@@ -20,7 +20,6 @@
     "react-native": "0.76.9",
     "react-native-fs": "^2.20.0",
     "react-native-image-picker": "^8.2.1",
-    "react-native-share": "^10.2.1",
     "react-native-svg": "^15.8.0",
     "react-native-vector-icons": "^10.2.0",
     "react-native-vision-camera": "^4.6.4",

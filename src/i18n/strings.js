@@ -97,6 +97,7 @@ export const STRINGS = {
     noReportsYet: 'No reports generated yet.',
     download: 'Download',
     downloadFailed: 'Download failed',
+    downloadStarted: 'Download started',
     reportsFooterNote:
       'Files you generated · kept for 90 days. Each report covers both shifts per worker with capture time/status, late/leave marked, scoped to your own zone/ward access.',
     // 02 profile
@@ -501,6 +502,7 @@ export const STRINGS = {
     noReportsYet: 'अभी तक कोई रिपोर्ट नहीं बनी।',
     download: 'डाउनलोड',
     downloadFailed: 'डाउनलोड विफल',
+    downloadStarted: 'डाउनलोड शुरू हो गया',
     reportsFooterNote:
       'आपकी बनाई फ़ाइलें · 90 दिनों तक सुरक्षित रहती हैं। हर रिपोर्ट दोनों शिफ़्ट, प्रत्येक कर्मचारी का कैप्चर समय/स्थिति और लेट/अवकाश दर्शाती है, और आपके ज़ोन/वार्ड तक सीमित है।',
     completeProfile: 'अपनी प्रोफ़ाइल पूरी करें',

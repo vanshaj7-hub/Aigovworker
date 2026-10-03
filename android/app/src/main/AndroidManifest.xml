@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Only needed for DownloadManager's public-Downloads writes on Android
+         9 and below; on 10+ DownloadManager writes there on the app's behalf
+         without this permission (scoped storage exempts it). -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-feature android:name="android.hardware.camera" android:required="true" />
 
     <application

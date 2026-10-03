@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ActivityIndicator, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {ActivityIndicator, ScrollView, StyleSheet, Text, ToastAndroid, View} from 'react-native';
 import {alert} from '../alert';
 import {ac, ar} from '../adminTheme';
 import {useLang} from '../i18n';
@@ -65,12 +65,13 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
         return;
       }
       onRefresh();
-      // Hand the freshly generated file straight to the share sheet instead
-      // of just pointing at "Recent exports below" — generating a report is
-      // the point of this screen, so the result should be immediately
-      // actionable, not a second lookup-and-tap away.
+      // Enqueue the freshly generated file with Android's own DownloadManager
+      // instead of just pointing at "Recent exports below" — generating a
+      // report is the point of this screen, so the result should be
+      // immediately actionable, not a second lookup-and-tap away.
       try {
-        await downloadReportFile(res.fileUrl, filenameFromUrl(res.fileUrl));
+        await downloadReportFile(res.fileUrl, filenameFromUrl(res.fileUrl), format);
+        ToastAndroid.show(tr('downloadStarted'), ToastAndroid.SHORT);
       } catch (err) {
         alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
       }
@@ -82,7 +83,8 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
   const download = async report => {
     setDownloadingId(report.id);
     try {
-      await downloadReportFile(report.fileUrl, filenameFromUrl(report.fileUrl));
+      await downloadReportFile(report.fileUrl, filenameFromUrl(report.fileUrl), report.format);
+      ToastAndroid.show(tr('downloadStarted'), ToastAndroid.SHORT);
     } catch (err) {
       alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
     } finally {
