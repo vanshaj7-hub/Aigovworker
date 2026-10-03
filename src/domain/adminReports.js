@@ -123,30 +123,6 @@ export function isSameHost(url, base) {
   return !!a && !!b && a === b;
 }
 
-const DOWNLOAD_ERROR_TEXT = {
-  1001: 'A file error occurred on the device.',
-  1002: 'The server returned an unexpected response.',
-  1004: 'A connection error occurred.',
-  1005: 'Too many redirects.',
-  1006: 'Not enough storage space on the device.',
-  1007: 'No SD card found.',
-  1008: 'The download could not be resumed.',
-  1009: 'A file with this name already exists.',
-};
-
-/** Turns a DownloadManager completion `reason` into a readable message — the
- * OS notification alone only ever says "Download unsuccessful". `reason` is
- * either a raw HTTP status code (<1000, meaning the file host rejected the
- * request — most often an auth problem) or a DownloadManager ERROR_*
- * constant (>=1000, an on-device failure). */
-export function describeDownloadFailure(reason) {
-  const n = Number(reason);
-  if (n >= 400 && n < 600) {
-    return `The file host rejected the request (HTTP ${n}).`;
-  }
-  return DOWNLOAD_ERROR_TEXT[n] || 'The download failed for an unknown reason.';
-}
-
 const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;
 
 /** Last path segment of a URL, decoded and stripped of any query string —

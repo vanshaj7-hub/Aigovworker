@@ -1,8 +1,8 @@
 package com.attendanceapp
 
 import android.app.Application
-import com.attendanceapp.downloadmanager.DownloadManagerPackage
 import com.attendanceapp.facenative.FaceEmbedPackage
+import com.attendanceapp.savefile.SaveToDownloadsPackage
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -23,7 +23,7 @@ class MainApplication : Application(), ReactApplication {
               // Packages that cannot be autolinked yet can be added manually here, for example:
               // add(MyReactNativePackage())
               add(FaceEmbedPackage())
-              add(DownloadManagerPackage())
+              add(SaveToDownloadsPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

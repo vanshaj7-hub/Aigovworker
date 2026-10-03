@@ -1,7 +1,6 @@
 import {
   buildGenerateRequest,
   datePresetRange,
-  describeDownloadFailure,
   filenameFromUrl,
   formatScopePart,
   isSameHost,
@@ -182,20 +181,5 @@ describe('isSameHost', () => {
   it('is false when either URL is missing or unparseable', () => {
     expect(isSameHost(null, 'https://api.example.com')).toBe(false);
     expect(isSameHost('https://api.example.com/x', null)).toBe(false);
-  });
-});
-
-describe('describeDownloadFailure', () => {
-  it('reports a raw HTTP status code as a server rejection', () => {
-    expect(describeDownloadFailure(403)).toBe('The file host rejected the request (HTTP 403).');
-    expect(describeDownloadFailure(404)).toBe('The file host rejected the request (HTTP 404).');
-  });
-
-  it('reports a known DownloadManager error code with its own message', () => {
-    expect(describeDownloadFailure(1009)).toBe('A file with this name already exists.');
-  });
-
-  it('falls back to a generic message for an unrecognized code', () => {
-    expect(describeDownloadFailure(9999)).toBe('The download failed for an unknown reason.');
   });
 });

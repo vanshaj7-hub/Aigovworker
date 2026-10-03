@@ -4,10 +4,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Only needed for DownloadManager's public-Downloads writes on Android
-         9 and below; on 10+ DownloadManager writes there on the app's behalf
-         without this permission (scoped storage exempts it). -->
+    <!-- Only needed to save a report straight to the public Downloads folder
+         on Android 9 and below; on 10+ that write goes through MediaStore
+         instead, which needs no permission (scoped storage exempts it). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- For the report-download "complete, tap to open" notification — a
+         no-op before Android 13, where any app notification needs it. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="true" />
 
     <application
@@ -30,5 +33,18 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <!-- Grants a safe content:// URI for the downloaded report file on
+           Android 9 and below, where it's saved via a plain file path
+           instead of MediaStore — needed so the "tap to open" notification
+           intent can hand it to another app (a PDF/CSV viewer). -->
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+      </provider>
     </application>
 </manifest>

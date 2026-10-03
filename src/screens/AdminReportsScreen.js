@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useState} from 'react';
 import {ActivityIndicator, ScrollView, StyleSheet, Text, ToastAndroid, View} from 'react-native';
 import {alert} from '../alert';
 import {ac, ar} from '../adminTheme';
@@ -17,7 +17,7 @@ import {
 import DatePickerSheet from '../DatePickerSheet';
 import {datePresetRange, filenameFromUrl, isStoragePermissionError} from '../domain/adminReports';
 import {generateReport} from '../adminSession';
-import {addDownloadCompleteListener, describeDownloadFailure, downloadReportFile} from '../adminDownload';
+import {downloadReportFile} from '../adminDownload';
 
 const PRESETS = ['today', 'thisWeek', 'thisMonth', 'custom'];
 const PRESET_KEY = {today: 'presetToday', thisWeek: 'presetThisWeek', thisMonth: 'presetThisMonth', custom: 'presetCustom'};
@@ -32,19 +32,6 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
   const [dateTarget, setDateTarget] = useState(null); // null | 'from' | 'to'
   const [generating, setGenerating] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
-
-  // The OS "download complete" notification only ever says "Download
-  // unsuccessful" with no detail when the transfer fails — this is how the
-  // app finds out why (wrong credential, server error, etc.) instead of
-  // leaving it a mystery.
-  useEffect(() => {
-    const sub = addDownloadCompleteListener(({successful, reason}) => {
-      if (!successful) {
-        alert(tr('downloadFailed'), describeDownloadFailure(reason));
-      }
-    });
-    return () => sub.remove();
-  }, [tr]);
 
   const pickPreset = key => {
     setPreset(key);
@@ -78,13 +65,13 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
         return;
       }
       onRefresh();
-      // Enqueue the freshly generated file with Android's own DownloadManager
-      // instead of just pointing at "Recent exports below" — generating a
-      // report is the point of this screen, so the result should be
-      // immediately actionable, not a second lookup-and-tap away.
+      // Download the freshly generated file straight away instead of just
+      // pointing at "Recent exports below" — generating a report is the
+      // point of this screen, so the result should be immediately
+      // actionable, not a second lookup-and-tap away.
       try {
-        await downloadReportFile(res.fileUrl, filenameFromUrl(res.fileUrl), format);
         ToastAndroid.show(tr('downloadStarted'), ToastAndroid.SHORT);
+        await downloadReportFile(res.fileUrl, filenameFromUrl(res.fileUrl), format);
       } catch (err) {
         alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
       }
@@ -96,8 +83,8 @@ export default function AdminReportsScreen({user, recent, loading, error, onRefr
   const download = async report => {
     setDownloadingId(report.id);
     try {
-      await downloadReportFile(report.fileUrl, filenameFromUrl(report.fileUrl), report.format);
       ToastAndroid.show(tr('downloadStarted'), ToastAndroid.SHORT);
+      await downloadReportFile(report.fileUrl, filenameFromUrl(report.fileUrl), report.format);
     } catch (err) {
       alert(tr('downloadFailed'), (err && err.message) || tr('uploadNetwork'));
     } finally {

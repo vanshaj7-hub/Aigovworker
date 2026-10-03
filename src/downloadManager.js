@@ -1,31 +1,24 @@
-// JS wrapper for the native RNDownloadManager module (see
-// android/.../downloadmanager/DownloadManagerModule.kt) — Android's own
-// DownloadManager, not a JS-side file fetch: it deposits the file in the
-// public Downloads folder (and nowhere else), and Android shows its own
-// in-progress and "download complete, tap to open" notifications with no
-// extra code on this side.
-import {DeviceEventEmitter, NativeModules} from 'react-native';
+// JS wrapper for the native RNSaveFile module (see
+// android/.../savefile/SaveToDownloadsModule.kt). Android's own
+// DownloadManager turned out not to reliably fetch these report files
+// itself — two rounds of a bare "Download unsuccessful" with no real
+// diagnostic, even after adding the backend's auth header — so the actual
+// HTTP transfer now happens in JS via RNFS (see adminDownload.js), which
+// had already proven it could fetch these exact files. This native module
+// only does the part that still needs native APIs: writing the
+// already-downloaded bytes into the public Downloads folder (via
+// MediaStore on Android 10+, where a plain file path is otherwise blocked)
+// and showing the "tap to open" completion notification.
+import {NativeModules} from 'react-native';
 
-const {RNDownloadManager} = NativeModules;
+const {RNSaveFile} = NativeModules;
 
-/** Enqueues a download; resolves once Android has accepted the request (not
- * once the download finishes — that's reported via the OS notification, and
- * via `addDownloadCompleteListener` below). `headers` (optional) are sent
- * with the download request, e.g. for a file host that needs the same
- * credential as the rest of the API. */
-export function enqueueDownload({url, filename, mimeType, title, headers}) {
-  if (!RNDownloadManager) {
-    return Promise.reject(new Error('Download manager is not available on this build.'));
+/** Copies the already-downloaded file at `sourcePath` into the public
+ * Downloads folder under `filename` and shows a completion notification
+ * that opens it on tap. Resolves/rejects once the save itself finishes. */
+export function saveToDownloads({sourcePath, filename, mimeType}) {
+  if (!RNSaveFile) {
+    return Promise.reject(new Error('Save-to-Downloads is not available on this build.'));
   }
-  return RNDownloadManager.download(url, filename, mimeType || null, title || filename, headers || null);
-}
-
-/** Fires once a download this module enqueued finishes, success or failure,
- * as `{id, successful, reason}` — `reason` is a DownloadManager ERROR_*
- * constant (>=1000) when Android itself gave up, or the raw HTTP status code
- * the file host returned (<1000) otherwise. The OS notification alone only
- * ever says "Download unsuccessful" with no detail, so this is how the app
- * finds out *why*. Returns a subscription with a `.remove()` method. */
-export function addDownloadCompleteListener(callback) {
-  return DeviceEventEmitter.addListener('RNDownloadManagerComplete', callback);
+  return RNSaveFile.save(sourcePath, filename, mimeType || 'application/octet-stream');
 }
