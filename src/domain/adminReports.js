@@ -104,6 +104,58 @@ export function isStoragePermissionError(message) {
   return STORAGE_ERROR_PATTERNS.some(re => re.test(text));
 }
 
+const FIREBASE_REST_HOST = 'https://firebasestorage.googleapis.com/v0/b';
+const BUCKET_SUFFIX = '.firebasestorage.app';
+
+/**
+ * Converts a raw GCS object URL (`storage.googleapis.com/<bucket>/<path>`,
+ * which is what the backend's `file_url` actually is) into the Firebase
+ * Storage REST download URL (`firebasestorage.googleapis.com/v0/b/<bucket>
+ * /o/<path>?alt=media`).
+ *
+ * This matters because those two hosts are gated by two different, unrelated
+ * things: the bare GCS URL is governed by the bucket's IAM, which denies an
+ * anonymous read (confirmed directly — a plain GET to it returns HTTP 403);
+ * the Firebase REST endpoint is governed by this project's Storage Rules
+ * instead, the same path the web dashboard's Storage SDK call (`getBlob`)
+ * goes through, and those rules do allow the read. No credentials needed —
+ * it's a different URL for the same object, not a different auth mechanism.
+ *
+ * Returns null if `url` doesn't look like a `*.firebasestorage.app` bucket
+ * URL at all, so a caller can fall back to using it unchanged rather than
+ * assuming every file_url needs this treatment.
+ */
+export function toFirebaseDownloadUrl(url) {
+  const raw = String(url || '');
+  const suffixIndex = raw.indexOf(BUCKET_SUFFIX);
+  const protoEnd = raw.indexOf('://');
+  if (suffixIndex === -1 || protoEnd === -1) {
+    return null;
+  }
+  // The bucket is the first path segment after the host (storage.googleapis.com),
+  // not everything after "://" — skip past the host to find where it starts.
+  const hostEnd = raw.indexOf('/', protoEnd + 3);
+  if (hostEnd === -1 || hostEnd >= suffixIndex) {
+    return null;
+  }
+  const bucketEnd = suffixIndex + BUCKET_SUFFIX.length;
+  const bucket = raw.slice(hostEnd + 1, bucketEnd);
+  const rest = raw.slice(bucketEnd);
+  if (rest.charAt(0) !== '/') {
+    return null;
+  }
+  let path = rest.slice(1).split('?')[0];
+  if (!path) {
+    return null;
+  }
+  try {
+    path = decodeURIComponent(path);
+  } catch (e) {
+    // Not validly encoded — use it as found.
+  }
+  return `${FIREBASE_REST_HOST}/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+}
+
 const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;
 
 /** Last path segment of a URL, decoded and stripped of any query string —

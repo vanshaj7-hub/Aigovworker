@@ -1,10 +1,15 @@
-// Report-file download for the admin Reports screen. The backend hands back
-// a Firebase Storage bucket object URL for a generated report — the same
-// kind of public, token-authenticated download URL this app already uses
-// for worker photos (see upload.js's downloadUrl()), fetchable with a plain
-// GET and no credentials. The native module does the actual fetch and the
-// save into the public Downloads folder in one step (downloadManager.js).
+// Report-file download for the admin Reports screen. The backend's file_url
+// is a raw GCS object URL (storage.googleapis.com/<bucket>/<path>) — gated
+// by the bucket's IAM, which denies an anonymous read (confirmed directly:
+// a plain GET to it returns HTTP 403). The web dashboard never fetches that
+// URL either; it goes through the Firebase Storage SDK instead, which talks
+// to a different host (firebasestorage.googleapis.com) gated by this
+// project's Storage Rules, not bucket IAM. toFirebaseDownloadUrl converts
+// one into the other — same object, no credentials needed, just the right
+// URL. The native module then does the actual fetch and the save into the
+// public Downloads folder in one step (downloadManager.js).
 import {logEvent, redactUrl} from './debugLog';
+import {toFirebaseDownloadUrl} from './domain/adminReports';
 import {downloadToDownloads} from './downloadManager';
 
 const MIME_BY_FORMAT = {csv: 'text/csv', pdf: 'application/pdf'};
@@ -18,9 +23,15 @@ export async function downloadReportFile(fileUrl, filename, format) {
     logEvent('js', 'downloadReportFile called with no fileUrl');
     throw new Error('This report has no file to download yet.');
   }
-  logEvent('js', 'downloadReportFile: starting', {url: redactUrl(fileUrl), filename, format});
+  const effectiveUrl = toFirebaseDownloadUrl(fileUrl) || fileUrl;
+  logEvent('js', 'downloadReportFile: starting', {
+    original: redactUrl(fileUrl),
+    effective: redactUrl(effectiveUrl),
+    filename,
+    format,
+  });
   try {
-    const result = await downloadToDownloads({url: fileUrl, filename, mimeType: MIME_BY_FORMAT[format]});
+    const result = await downloadToDownloads({url: effectiveUrl, filename, mimeType: MIME_BY_FORMAT[format]});
     logEvent('js', 'downloadReportFile: resolved', {result});
   } catch (err) {
     logEvent('js', 'downloadReportFile: rejected', {message: err && err.message});

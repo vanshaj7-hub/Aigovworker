@@ -6,6 +6,7 @@ import {
   isStoragePermissionError,
   mapRecentReports,
   shortDisplayDate,
+  toFirebaseDownloadUrl,
 } from '../src/domain/adminReports';
 
 describe('shortDisplayDate', () => {
@@ -164,5 +165,26 @@ describe('filenameFromUrl', () => {
 
   it('replaces characters a filesystem cannot store in a filename', () => {
     expect(filenameFromUrl('https://x.firebasestorage.app/reports/Report%2010:30:00.csv')).toBe('Report 10_30_00.csv');
+  });
+});
+
+describe('toFirebaseDownloadUrl', () => {
+  it('converts a raw GCS bucket URL (the real failing shape) into the Firebase REST download URL', () => {
+    const raw =
+      'https://storage.googleapis.com/project-331083a5-d3a3-42fa-ab2.firebasestorage.app/reports/attendance/attendance_report_20261003_233338_b3ff70e2.pdf';
+    expect(toFirebaseDownloadUrl(raw)).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/project-331083a5-d3a3-42fa-ab2.firebasestorage.app/o/' +
+        'reports%2Fattendance%2Fattendance_report_20261003_233338_b3ff70e2.pdf?alt=media',
+    );
+  });
+
+  it('returns null for a URL that is not a *.firebasestorage.app bucket URL', () => {
+    expect(toFirebaseDownloadUrl('https://example.com/reports/7.csv')).toBeNull();
+    expect(toFirebaseDownloadUrl(null)).toBeNull();
+  });
+
+  it('is a no-op to re-encode an already Firebase REST download URL (it is left for the caller to fall back to)', () => {
+    // firebasestorage.googleapis.com is not a *.firebasestorage.app bucket host, so this correctly falls through to null.
+    expect(toFirebaseDownloadUrl('https://firebasestorage.googleapis.com/v0/b/x/o/y?alt=media')).toBeNull();
   });
 });
